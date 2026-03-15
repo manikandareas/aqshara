@@ -1,0 +1,26 @@
+process.env.NODE_ENV = 'test';
+process.env.PORT = '3001';
+process.env.API_PREFIX = 'api/v1';
+process.env.LOG_LEVEL = 'silent';
+process.env.DATABASE_URL =
+  'postgresql://postgres:postgres@localhost:5432/aqshara';
+process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.QUEUE_DISABLED = 'true';
+process.env.MISTRAL_API_KEY = 'mistral_api_key';
+process.env.MISTRAL_OCR_MODEL = 'mistral-ocr-latest';
+process.env.MISTRAL_TIMEOUT_MS = '60000';
+process.env.OPENAI_API_KEY = 'openai_api_key';
+process.env.OPENAI_TRANSLATION_MODEL = 'gpt-4.1';
+process.env.OPENAI_TRANSLATION_TIMEOUT_MS = '60000';
+process.env.R2_ENDPOINT = 'https://example.r2.cloudflarestorage.com';
+process.env.R2_REGION = 'auto';
+process.env.R2_ACCESS_KEY_ID = 'test';
+process.env.R2_SECRET_ACCESS_KEY = 'test';
+process.env.R2_BUCKET = 'test-bucket';
+process.env.DOCUMENT_UPLOAD_MAX_BYTES = '52428800';
+process.env.CLERK_SECRET_KEY = 'sk_test_example';
+process.env.CLERK_PUBLISHABLE_KEY = 'pk_test_example';
+process.env.CLERK_JWT_KEY = '';
+process.env.CLERK_AUTHORIZED_PARTIES = 'http://localhost:3000';
+process.env.POLAR_ACCESS_TOKEN = 'polar_token';
+process.env.POLAR_WEBHOOK_SECRET = 'polar_secret';

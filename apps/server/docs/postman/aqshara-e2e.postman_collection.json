@@ -1,0 +1,1633 @@
+{
+  "info": {
+    "_postman_id": "3df04f31-bdd7-4344-ac34-bef0ed2ab6d0",
+    "name": "Aqshara API E2E Sequence",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "E2E run aligned with current Aqshara Nest API (Clerk auth, /api/v1 prefix, document upload with auto video generation flow)."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "e2e",
+      "description": "Original full E2E sequence grouped under a single folder.",
+      "item": [
+        {
+          "name": "01. Healthz",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/healthz"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('healthz returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02. Readyz",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/readyz"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('readyz returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03. Auth - Clerk Resolve User",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              }
+            ],
+            "url": "{{clerk_api_url}}/v1/users?email_address={{clerk_identifier}}&limit=1"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "['clerk_api_url','clerk_secret_key','clerk_identifier','clerk_password'].forEach(function(k){",
+                  "  var value = (pm.environment.get(k) || '').trim();",
+                  "  if (!value) throw new Error(k + ' env var is required');",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('clerk resolve user returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var users = Array.isArray(json) ? json : (json.data || []);",
+                  "pm.test('clerk user found', function () { pm.expect(users.length).to.be.above(0); });",
+                  "pm.environment.set('clerk_user_id', users[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04. Auth - Clerk Verify Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{clerk_password}}\"\n}"
+            },
+            "url": "{{clerk_api_url}}/v1/users/{{clerk_user_id}}/verify_password"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('verify password returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('password is verified', function () { pm.expect(json.verified).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05. Auth - Clerk Create Session",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{clerk_user_id}}\"\n}"
+            },
+            "url": "{{clerk_api_url}}/v1/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('create session returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('clerk_session_id', json.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06. Auth - Clerk Session Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{clerk_api_url}}/v1/sessions/{{clerk_session_id}}/tokens"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('session token returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var token = (json.jwt || '').trim();",
+                  "pm.test('access token exists', function () { pm.expect(token).to.not.eql(''); });",
+                  "pm.environment.set('access_token', token);",
+                  "pm.environment.set('access_token_last_refresh_ms', String(Date.now()));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07. Billing - Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/billing/plans"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing plans returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08. Billing - Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/billing/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing me returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09. Billing - Checkout Invalid Payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_code\": \"\",\n  \"success_url\": \"\"\n}"
+            },
+            "url": "{{base_url}}{{api_prefix}}/billing/checkout"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('billing checkout invalid payload returns 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Webhook - Polar Invalid Signature",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"test\"\n}"
+            },
+            "url": "{{base_url}}{{api_prefix}}/webhooks/polar"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('polar webhook invalid signature returns 403', function () { pm.response.to.have.status(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Negative - Upload Without Auth",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "docs/postman/sample.pdf"
+                }
+              ]
+            },
+            "url": "{{base_url}}{{api_prefix}}/documents"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized upload returns 401', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Documents - Upload PDF",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "docs/postman/sample.pdf"
+                },
+                {
+                  "key": "require_translate",
+                  "type": "text",
+                  "value": "{{require_translate}}"
+                },
+                {
+                  "key": "require_video_generation",
+                  "type": "text",
+                  "value": "{{require_video_generation}}"
+                }
+              ]
+            },
+            "url": "{{base_url}}{{api_prefix}}/documents"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('upload returns 202', function () { pm.response.to.have.status(202); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('document_id', json.data.id);",
+                  "pm.test('document upload enables video generation flag', function () {",
+                  "  pm.expect(json.data.require_video_generation).to.eql((pm.environment.get('require_video_generation') || 'false') === 'true');",
+                  "});",
+                  "pm.environment.set('status_value', json.data.status || '');",
+                  "pm.environment.set('pipeline_stage', json.data.pipeline_stage || '');",
+                  "pm.environment.set('poll_attempt', '0');",
+                  "pm.environment.unset('video_job_id');",
+                  "pm.environment.unset('video_status_value');",
+                  "pm.environment.unset('video_pipeline_stage');",
+                  "pm.environment.unset('video_result_url');",
+                  "pm.environment.set('video_poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. Documents - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents?page=1&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('documents list returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14. Status - Poll Until Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status poll returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var status = json.data.status;",
+                  "var stage = json.data.pipeline_stage;",
+                  "pm.environment.set('status_value', status || '');",
+                  "pm.environment.set('pipeline_stage', stage || '');",
+                  "var attempt = parseInt(pm.environment.get('poll_attempt') || '0', 10) + 1;",
+                  "var maxAttempts = parseInt(pm.environment.get('poll_max_attempts') || '120', 10);",
+                  "pm.environment.set('poll_attempt', String(attempt));",
+                  "var terminal = (status === 'ready' || status === 'error');",
+                  "if (!terminal && attempt < maxAttempts) {",
+                  "  postman.setNextRequest('14. Status - Poll Until Terminal');",
+                  "} else if (status === 'ready') {",
+                  "  var needsVideo = (pm.environment.get('require_video_generation') || 'false') === 'true';",
+                  "  postman.setNextRequest(needsVideo ? '17. Video Jobs - Create Or Reuse' : '21. Documents - Detail');",
+                  "} else {",
+                  "  pm.test('pipeline reached ready state', function () {",
+                  "    pm.expect.fail('Pipeline did not reach ready state. status=' + status + ', stage=' + stage + ', attempts=' + attempt);",
+                  "  });",
+                  "  postman.setNextRequest('38. Documents - Delete');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15. Status Stream Without Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/status/stream"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status stream without token returns 401', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16. Status Stream With access_token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/status/stream?access_token={{access_token}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status stream with query token returns 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('stream payload contains status event', function () {",
+                  "  pm.expect(pm.response.text()).to.include('event: status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17. Video Jobs - Create Or Reuse",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": \"{{document_id}}\",\n  \"target_duration_sec\": {{video_target_duration_sec}},\n  \"voice\": \"{{video_voice}}\",\n  \"language\": \"{{video_language}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}{{api_prefix}}/video-jobs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video job create or reuse returns 202', function () { pm.response.to.have.status(202); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('video_job_id', json.data.id);",
+                  "pm.environment.set('video_status_value', json.data.status || '');",
+                  "pm.environment.set('video_pipeline_stage', json.data.pipeline_stage || '');",
+                  "pm.environment.set('video_poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18. Video Jobs - Poll Until Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/video-jobs/{{video_job_id}}/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video status poll returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var status = json.data.status;",
+                  "var stage = json.data.pipeline_stage;",
+                  "pm.environment.set('video_status_value', status || '');",
+                  "pm.environment.set('video_pipeline_stage', stage || '');",
+                  "var attempt = parseInt(pm.environment.get('video_poll_attempt') || '0', 10) + 1;",
+                  "var maxAttempts = parseInt(pm.environment.get('video_poll_max_attempts') || '240', 10);",
+                  "pm.environment.set('video_poll_attempt', String(attempt));",
+                  "var terminal = (status === 'completed' || status === 'failed');",
+                  "if (!terminal && attempt < maxAttempts) {",
+                  "  postman.setNextRequest('18. Video Jobs - Poll Until Terminal');",
+                  "} else if (status === 'completed') {",
+                  "  postman.setNextRequest('19. Video Jobs - Result');",
+                  "} else {",
+                  "  pm.test('video pipeline reached completed state', function () {",
+                  "    pm.expect.fail('Video pipeline did not reach completed state. status=' + status + ', stage=' + stage + ', attempts=' + attempt);",
+                  "  });",
+                  "  postman.setNextRequest('38. Documents - Delete');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19. Video Jobs - Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/video-jobs/{{video_job_id}}/result"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video result returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('video result contains url', function () { pm.expect((json.data.video_url || '')).to.not.eql(''); });",
+                  "pm.environment.set('video_result_url', json.data.video_url || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "20. Video Jobs - Status Stream With access_token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/video-jobs/{{video_job_id}}/status/stream?access_token={{access_token}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video status stream with query token returns 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('video stream payload contains status event', function () {",
+                  "  pm.expect(pm.response.text()).to.include('event: status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "21. Documents - Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('document detail returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "22. Reader - Outline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/outline"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('outline returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "23. Reader - Paragraphs List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/paragraphs?page=1&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('paragraphs list returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0) {",
+                  "  pm.environment.set('paragraph_id', json.data[0].id);",
+                  "  pm.environment.set('translation_paragraph_id', json.data[0].id);",
+                  "}",
+                  "pm.test('paragraphs list has data array', function () { pm.expect(Array.isArray(json.data)).to.eql(true); });",
+                  "if (json.data && json.data.length > 0) {",
+                  "  pm.test('paragraph item uses new text contract', function () {",
+                  "    pm.expect(json.data[0]).to.have.property('text_raw');",
+                  "    pm.expect(json.data[0]).to.have.property('source_lang');",
+                  "    pm.expect(json.data[0]).to.have.property('text_en');",
+                  "    pm.expect(json.data[0]).to.have.property('text_id');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "24. Reader - Paragraph Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/paragraphs/{{paragraph_id}}"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var accessToken = (pm.environment.get('access_token') || '').trim();",
+                  "var lastRefreshMs = Number(pm.environment.get('access_token_last_refresh_ms') || '0');",
+                  "var now = Date.now();",
+                  "var needsRefresh = !accessToken || !lastRefreshMs || (now - lastRefreshMs) >= 40000;",
+                  "if (!needsRefresh) { return; }",
+                  "var clerkApiUrl = (pm.environment.get('clerk_api_url') || '').trim();",
+                  "var clerkSecretKey = (pm.environment.get('clerk_secret_key') || '').trim();",
+                  "var clerkSessionId = (pm.environment.get('clerk_session_id') || '').trim();",
+                  "if (!clerkApiUrl || !clerkSecretKey || !clerkSessionId) {",
+                  "  throw new Error('Missing clerk_api_url/clerk_secret_key/clerk_session_id for token refresh');",
+                  "}",
+                  "pm.sendRequest({",
+                  "  url: clerkApiUrl + '/v1/sessions/' + clerkSessionId + '/tokens',",
+                  "  method: 'POST',",
+                  "  header: { Authorization: 'Bearer ' + clerkSecretKey, 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: '{}' }",
+                  "}, function (err, res) {",
+                  "  if (err) { throw err; }",
+                  "  pm.expect(res.code).to.eql(200);",
+                  "  var json = res.json();",
+                  "  var token = (json.jwt || '').trim();",
+                  "  if (!token) { throw new Error('Token refresh returned empty jwt'); }",
+                  "  pm.environment.set('access_token', token);",
+                  "  pm.environment.set('access_token_last_refresh_ms', String(Date.now()));",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('paragraph_id')) {",
+                  "  postman.setNextRequest('25. Reader - Search');",
+                  "} else {",
+                  "  pm.test('paragraph detail returns 200', function () { pm.response.to.have.status(200); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "25. Reader - Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/search?q=Attention&lang=en"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('search returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "26. Negative - Search Missing q",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/search"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('search without q returns 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "27. Translations - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/translations?page=1&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('translations list returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0 && json.data[0].paragraph_id) {",
+                  "  pm.environment.set('translation_paragraph_id', json.data[0].paragraph_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "28. Negative - Translations Invalid Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/translations?status=invalid"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('invalid translation status filter returns 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "29. Translations - Retry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/translations/{{translation_paragraph_id}}/retry"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('translation_paragraph_id')) {",
+                  "  postman.setNextRequest('30. Glossary - List');",
+                  "} else {",
+                  "  pm.test('retry translation returns 202', function () { pm.response.to.have.status(202); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "30. Glossary - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/glossary?page=1&limit=20&sort=frequency"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('glossary list returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0) { pm.environment.set('term_id', json.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "31. Glossary - Lookup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/glossary/lookup?term=Attention&lang=en"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('glossary lookup returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.id) { pm.environment.set('term_id', json.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "32. Glossary - Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/glossary/{{term_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('term_id')) {",
+                  "  postman.setNextRequest('33. Map - Tree');",
+                  "} else {",
+                  "  pm.test('glossary detail returns 200', function () { pm.response.to.have.status(200); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "33. Map - Tree",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/map"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('map tree returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.nodes && json.data.nodes.length > 0) { pm.environment.set('node_id', json.data.nodes[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "34. Map - Node Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/map/{{node_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('node_id')) {",
+                  "  postman.setNextRequest('35. Events - Batch');",
+                  "} else {",
+                  "  pm.test('map node detail returns 200', function () { pm.response.to.have.status(200); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "35. Events - Batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"events\": [\n    {\n      \"type\": \"map_click\",\n      \"document_id\": \"{{document_id}}\",\n      \"payload\": {\n        \"node_id\": \"{{node_id}}\"\n      },\n      \"timestamp\": \"2026-03-10T10:10:00Z\"\n    },\n    {\n      \"type\": \"search\",\n      \"document_id\": \"{{document_id}}\",\n      \"payload\": {\n        \"query\": \"attention\"\n      },\n      \"timestamp\": \"2026-03-10T10:11:00Z\"\n    }\n  ]\n}"
+            },
+            "url": "{{base_url}}{{api_prefix}}/events"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('events batch returns 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "36. Feedback - Rating",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"rating\",\n  \"rating\": 5,\n  \"comment\": \"Postman E2E rating\"\n}"
+            },
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/feedback"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('feedback rating returns 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "37. Feedback - Issue",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"issue\",\n  \"paragraph_id\": \"{{paragraph_id}}\",\n  \"issue_type\": \"wrong_translation\",\n  \"description\": \"Postman E2E issue report\"\n}"
+            },
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/feedback"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('feedback issue returns 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "38. Documents - Delete",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get('document_id')) {",
+                  "  pm.test('delete returns 204', function () { pm.response.to.have.status(204); });",
+                  "}",
+                  "['document_id','paragraph_id','translation_paragraph_id','term_id','node_id','status_value','pipeline_stage','poll_attempt','video_job_id','video_status_value','video_pipeline_stage','video_result_url','video_poll_attempt','clerk_session_id','access_token_last_refresh_ms'].forEach(function(k){ pm.environment.unset(k); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flow-auth-upload-video-result",
+      "description": "Focused flow from Clerk signin to upload, document readiness, and video result endpoints.",
+      "item": [
+        {
+          "name": "F01. 03. Auth - Clerk Resolve User",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              }
+            ],
+            "url": "{{clerk_api_url}}/v1/users?email_address={{clerk_identifier}}&limit=1"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "['clerk_api_url','clerk_secret_key','clerk_identifier','clerk_password'].forEach(function(k){",
+                  "  var value = (pm.environment.get(k) || '').trim();",
+                  "  if (!value) throw new Error(k + ' env var is required');",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('clerk resolve user returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var users = Array.isArray(json) ? json : (json.data || []);",
+                  "pm.test('clerk user found', function () { pm.expect(users.length).to.be.above(0); });",
+                  "pm.environment.set('clerk_user_id', users[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F02. 04. Auth - Clerk Verify Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{clerk_password}}\"\n}"
+            },
+            "url": "{{clerk_api_url}}/v1/users/{{clerk_user_id}}/verify_password"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('verify password returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('password is verified', function () { pm.expect(json.verified).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F03. 05. Auth - Clerk Create Session",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{clerk_user_id}}\"\n}"
+            },
+            "url": "{{clerk_api_url}}/v1/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('create session returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('clerk_session_id', json.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F04. 06. Auth - Clerk Session Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{clerk_api_url}}/v1/sessions/{{clerk_session_id}}/tokens"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('session token returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var token = (json.jwt || '').trim();",
+                  "pm.test('access token exists', function () { pm.expect(token).to.not.eql(''); });",
+                  "pm.environment.set('access_token', token);",
+                  "pm.environment.set('access_token_last_refresh_ms', String(Date.now()));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F05. 12. Documents - Upload PDF",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "docs/postman/sample.pdf"
+                },
+                {
+                  "key": "require_translate",
+                  "type": "text",
+                  "value": "{{require_translate}}"
+                },
+                {
+                  "key": "require_video_generation",
+                  "type": "text",
+                  "value": "{{require_video_generation}}"
+                }
+              ]
+            },
+            "url": "{{base_url}}{{api_prefix}}/documents"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('upload returns 202', function () { pm.response.to.have.status(202); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('document_id', json.data.id);",
+                  "pm.test('document upload enables video generation flag', function () {",
+                  "  pm.expect(json.data.require_video_generation).to.eql((pm.environment.get('require_video_generation') || 'false') === 'true');",
+                  "});",
+                  "pm.environment.set('status_value', json.data.status || '');",
+                  "pm.environment.set('pipeline_stage', json.data.pipeline_stage || '');",
+                  "pm.environment.set('poll_attempt', '0');",
+                  "pm.environment.unset('video_job_id');",
+                  "pm.environment.unset('video_status_value');",
+                  "pm.environment.unset('video_pipeline_stage');",
+                  "pm.environment.unset('video_result_url');",
+                  "pm.environment.set('video_poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F06. 13. Documents - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents?page=1&limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('documents list returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F07. 14. Status - Poll Until Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status poll returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var status = json.data.status;",
+                  "var stage = json.data.pipeline_stage;",
+                  "pm.environment.set('status_value', status || '');",
+                  "pm.environment.set('pipeline_stage', stage || '');",
+                  "var attempt = parseInt(pm.environment.get('poll_attempt') || '0', 10) + 1;",
+                  "var maxAttempts = parseInt(pm.environment.get('poll_max_attempts') || '120', 10);",
+                  "pm.environment.set('poll_attempt', String(attempt));",
+                  "var terminal = (status === 'ready' || status === 'error');",
+                  "if (!terminal && attempt < maxAttempts) {",
+                  "  postman.setNextRequest('F07. 14. Status - Poll Until Terminal');",
+                  "} else if (status === 'ready') {",
+                  "  var needsVideo = (pm.environment.get('require_video_generation') || 'false') === 'true';",
+                  "  postman.setNextRequest(needsVideo ? 'F10. Video Jobs - Create Or Reuse' : 'F13. 17. Documents - Detail');",
+                  "} else {",
+                  "  pm.test('pipeline reached ready state', function () {",
+                  "    pm.expect.fail('Pipeline did not reach ready state. status=' + status + ', stage=' + stage + ', attempts=' + attempt);",
+                  "  });",
+                  "  postman.setNextRequest(null);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F09. 16. Status Stream With access_token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/status/stream?access_token={{access_token}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status stream with query token returns 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('stream payload contains status event', function () {",
+                  "  pm.expect(pm.response.text()).to.include('event: status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F10. Video Jobs - Create Or Reuse",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_id\": \"{{document_id}}\",\n  \"target_duration_sec\": {{video_target_duration_sec}},\n  \"voice\": \"{{video_voice}}\",\n  \"language\": \"{{video_language}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}{{api_prefix}}/video-jobs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video job create or reuse returns 202', function () { pm.response.to.have.status(202); });",
+                  "var json = pm.response.json();",
+                  "pm.environment.set('video_job_id', json.data.id);",
+                  "pm.environment.set('video_status_value', json.data.status || '');",
+                  "pm.environment.set('video_pipeline_stage', json.data.pipeline_stage || '');",
+                  "pm.environment.set('video_poll_attempt', '0');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F11. Video Jobs - Poll Until Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/video-jobs/{{video_job_id}}/status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video status poll returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "var status = json.data.status;",
+                  "var stage = json.data.pipeline_stage;",
+                  "pm.environment.set('video_status_value', status || '');",
+                  "pm.environment.set('video_pipeline_stage', stage || '');",
+                  "var attempt = parseInt(pm.environment.get('video_poll_attempt') || '0', 10) + 1;",
+                  "var maxAttempts = parseInt(pm.environment.get('video_poll_max_attempts') || '240', 10);",
+                  "pm.environment.set('video_poll_attempt', String(attempt));",
+                  "var terminal = (status === 'completed' || status === 'failed');",
+                  "if (!terminal && attempt < maxAttempts) {",
+                  "  postman.setNextRequest('F11. Video Jobs - Poll Until Terminal');",
+                  "} else if (status === 'completed') {",
+                  "  postman.setNextRequest('F12. Video Jobs - Result');",
+                  "} else {",
+                  "  pm.test('video pipeline reached completed state', function () {",
+                  "    pm.expect.fail('Video pipeline did not reach completed state. status=' + status + ', stage=' + stage + ', attempts=' + attempt);",
+                  "  });",
+                  "  postman.setNextRequest(null);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F12. Video Jobs - Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/video-jobs/{{video_job_id}}/result"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('video result returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('video result contains url', function () { pm.expect((json.data.video_url || '')).to.not.eql(''); });",
+                  "pm.environment.set('video_result_url', json.data.video_url || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F13. 17. Documents - Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('document detail returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F14. 18. Reader - Outline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/outline"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('outline returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F15. 19. Reader - Paragraphs List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/paragraphs?page=1&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('paragraphs list returns 200', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0) {",
+                  "  pm.environment.set('paragraph_id', json.data[0].id);",
+                  "  pm.environment.set('translation_paragraph_id', json.data[0].id);",
+                  "}",
+                  "pm.test('paragraphs list has data array', function () { pm.expect(Array.isArray(json.data)).to.eql(true); });",
+                  "if (json.data && json.data.length > 0) {",
+                  "  pm.test('paragraph item uses new text contract', function () {",
+                  "    pm.expect(json.data[0]).to.have.property('text_raw');",
+                  "    pm.expect(json.data[0]).to.have.property('source_lang');",
+                  "    pm.expect(json.data[0]).to.have.property('text_en');",
+                  "    pm.expect(json.data[0]).to.have.property('text_id');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F16. 20. Reader - Paragraph Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/paragraphs/{{paragraph_id}}"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var accessToken = (pm.environment.get('access_token') || '').trim();",
+                  "var lastRefreshMs = Number(pm.environment.get('access_token_last_refresh_ms') || '0');",
+                  "var now = Date.now();",
+                  "var needsRefresh = !accessToken || !lastRefreshMs || (now - lastRefreshMs) >= 40000;",
+                  "if (!needsRefresh) { return; }",
+                  "var clerkApiUrl = (pm.environment.get('clerk_api_url') || '').trim();",
+                  "var clerkSecretKey = (pm.environment.get('clerk_secret_key') || '').trim();",
+                  "var clerkSessionId = (pm.environment.get('clerk_session_id') || '').trim();",
+                  "if (!clerkApiUrl || !clerkSecretKey || !clerkSessionId) {",
+                  "  throw new Error('Missing clerk_api_url/clerk_secret_key/clerk_session_id for token refresh');",
+                  "}",
+                  "pm.sendRequest({",
+                  "  url: clerkApiUrl + '/v1/sessions/' + clerkSessionId + '/tokens',",
+                  "  method: 'POST',",
+                  "  header: { Authorization: 'Bearer ' + clerkSecretKey, 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: '{}' }",
+                  "}, function (err, res) {",
+                  "  if (err) { throw err; }",
+                  "  pm.expect(res.code).to.eql(200);",
+                  "  var json = res.json();",
+                  "  var token = (json.jwt || '').trim();",
+                  "  if (!token) { throw new Error('Token refresh returned empty jwt'); }",
+                  "  pm.environment.set('access_token', token);",
+                  "  pm.environment.set('access_token_last_refresh_ms', String(Date.now()));",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('paragraph_id')) {",
+                  "  postman.setNextRequest('F17. 21. Reader - Search');",
+                  "} else {",
+                  "  pm.test('paragraph detail returns 200', function () { pm.response.to.have.status(200); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "F17. 21. Reader - Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}{{api_prefix}}/documents/{{document_id}}/search?q=Attention&lang=en"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('search returns 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
