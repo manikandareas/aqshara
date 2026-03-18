@@ -258,12 +258,17 @@ export class QueueService implements OnModuleDestroy {
     return job;
   }
 
-  async enqueueVideoGenerate(payload: VideoGenerateJobPayload): Promise<Job> {
+  async enqueueVideoGenerate(
+    payload: VideoGenerateJobPayload,
+    options?: { delayMs?: number },
+  ): Promise<Job> {
     if (!this.videoGenerateQueue) {
       throw new Error('Video generate queue is disabled');
     }
 
-    const job = await this.videoGenerateQueue.add('video.generate', payload);
+    const job = await this.videoGenerateQueue.add('video.generate', payload, {
+      delay: options?.delayMs ?? 0,
+    });
     this.metricsService.incrementQueueJob(
       this.queueNames.videoGenerate,
       'enqueued',

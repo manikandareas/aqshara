@@ -11,8 +11,6 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
 import { PipelineWorkerService } from './modules/pipeline/pipeline.worker.service';
 import { ReaderModule } from './modules/reader/reader.module';
-import { VideoCommandOutboxService } from './modules/video-jobs/video-command-outbox.service';
-import { VideoEventConsumerService } from './modules/video-jobs/video-event-consumer.service';
 import { VideoJobWatchdogService } from './modules/video-jobs/video-job-watchdog.service';
 import { VideoJobsModule } from './modules/video-jobs/video-jobs.module';
 import { ObservabilityModule } from './observability/observability.module';
@@ -42,8 +40,6 @@ import { ObservabilityModule } from './observability/observability.module';
   ],
   providers: [
     PipelineWorkerService,
-    VideoCommandOutboxService,
-    VideoEventConsumerService,
     VideoJobWatchdogService,
   ],
 })

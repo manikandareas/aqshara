@@ -32,9 +32,8 @@ function createVideoJobRecord(
     terminal_event_id: null,
     quality_gate: {
       storyboard_valid: false,
-      code_valid: false,
+      audio_ready: false,
       render_valid: false,
-      audio_sync_valid: false,
     },
     error_code: null,
     error_message: null,
@@ -59,8 +58,6 @@ describe('VideoJobsService', () => {
   const findOwnedVideoJobByIdMock = jest.fn();
   const findVideoJobByIdMock = jest.fn();
   const resetVideoJobForRetryMock = jest.fn();
-  const createVideoOutboxCommandMock = jest.fn();
-  const insertVideoTransportEventMock = jest.fn();
   const markVideoJobAcceptedMock = jest.fn();
   const touchVideoJobHeartbeatMock = jest.fn();
   const updateVideoJobProgressMock = jest.fn();
@@ -75,6 +72,7 @@ describe('VideoJobsService', () => {
   const failStalledJobMock = jest.fn();
 
   const assertOwnedDocumentReadyMock = jest.fn();
+  const enqueueVideoGenerateMock = jest.fn();
 
   const repository = {
     findLatestActiveOwnedJobByDocumentId:
@@ -85,8 +83,6 @@ describe('VideoJobsService', () => {
     findOwnedVideoJobById: findOwnedVideoJobByIdMock,
     findVideoJobById: findVideoJobByIdMock,
     resetVideoJobForRetry: resetVideoJobForRetryMock,
-    createVideoOutboxCommand: createVideoOutboxCommandMock,
-    insertVideoTransportEvent: insertVideoTransportEventMock,
     markVideoJobAccepted: markVideoJobAcceptedMock,
     touchVideoJobHeartbeat: touchVideoJobHeartbeatMock,
     updateVideoJobProgress: updateVideoJobProgressMock,
@@ -105,6 +101,10 @@ describe('VideoJobsService', () => {
   const documentsService = {
     assertOwnedDocumentReady: assertOwnedDocumentReadyMock,
   } as unknown as DocumentsService;
+
+  const queueService = {
+    enqueueVideoGenerate: enqueueVideoGenerateMock,
+  };
 
   const storageService = {
     createObjectUrl: jest.fn(),
@@ -152,6 +152,7 @@ describe('VideoJobsService', () => {
   const service = new VideoJobsService(
     repository,
     documentsService,
+    queueService as never,
     storageService,
     bunnyStreamService,
     configService,
@@ -164,7 +165,7 @@ describe('VideoJobsService', () => {
     (bunnyStreamService.isConfigured as jest.Mock).mockReturnValue(false);
   });
 
-  it('creates a job and writes a transport command to the outbox', async () => {
+  it('creates a job and enqueues it directly to bullmq', async () => {
     const created = createVideoJobRecord({
       id: 'vjob_2',
       document_id: 'doc_1',
@@ -181,7 +182,7 @@ describe('VideoJobsService', () => {
     findLatestActiveOwnedJobByDocumentIdMock.mockResolvedValue(null);
     findLatestCompletedOwnedJobByDocumentIdMock.mockResolvedValue(null);
     createVideoJobMock.mockResolvedValue(created);
-    createVideoOutboxCommandMock.mockResolvedValue(undefined);
+    enqueueVideoGenerateMock.mockResolvedValue(undefined);
 
     await expect(
       service.createVideoJob({
@@ -201,22 +202,19 @@ describe('VideoJobsService', () => {
       }),
     });
 
-    expect(createVideoOutboxCommandMock).toHaveBeenCalledWith(
-      'vjob_2',
+    expect(enqueueVideoGenerateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        topic: 'video.generate.command',
-        job_id: 'vjob_2',
+        video_job_id: 'vjob_2',
         attempt: 1,
         request_id: 'req_1',
-        ocr_object_key: 'documents/doc_1/artifacts/ocr/raw.json',
       }),
       expect.objectContaining({
-        nextAttemptAt: expect.any(Date),
+        delayMs: 0,
       }),
     );
   });
 
-  it('retries only failed jobs and re-enqueues via outbox', async () => {
+  it('retries only failed jobs and re-enqueues via bullmq', async () => {
     resetVideoJobForRetryMock.mockResolvedValue(undefined);
     assertOwnedDocumentReadyMock.mockResolvedValue({
       id: 'doc_1',
@@ -249,13 +247,15 @@ describe('VideoJobsService', () => {
     await service.retryVideoJob('vjob_3', 'user_1', 'req_retry');
 
     expect(resetVideoJobForRetryMock).toHaveBeenCalledWith('vjob_3');
-    expect(createVideoOutboxCommandMock).toHaveBeenCalledWith(
-      'vjob_3',
+    expect(enqueueVideoGenerateMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        video_job_id: 'vjob_3',
         attempt: 2,
         request_id: 'req_retry',
       }),
-      expect.any(Object),
+      expect.objectContaining({
+        delayMs: 0,
+      }),
     );
   });
 
@@ -299,156 +299,6 @@ describe('VideoJobsService', () => {
     );
 
     expect(createVideoJobMock).not.toHaveBeenCalled();
-  });
-
-  it('applies accepted events for the active attempt', async () => {
-    insertVideoTransportEventMock.mockResolvedValue(true);
-    findVideoJobByIdMock.mockResolvedValue(
-      createVideoJobRecord({
-        id: 'vjob_accepted',
-        current_attempt: 1,
-      }),
-    );
-
-    await expect(
-      service.ingestTransportEvent({
-        schema_version: '2026-03-11',
-        event_id: 'evt_accepted',
-        event_type: 'job.accepted',
-        job_id: 'vjob_accepted',
-        attempt: 1,
-        worker_id: 'worker-1',
-        occurred_at: '2026-03-11T00:00:10.000Z',
-      }),
-    ).resolves.toBe(true);
-
-    expect(insertVideoTransportEventMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventId: 'evt_accepted',
-        occurredAt: '2026-03-11T00:00:10.000Z',
-      }),
-    );
-    expect(markVideoJobAcceptedMock).toHaveBeenCalledWith({
-      jobId: 'vjob_accepted',
-      attempt: 1,
-      workerId: 'worker-1',
-      leaseExpiresAt: expect.any(Date),
-    });
-  });
-
-  it('applies progress events and persists scene state', async () => {
-    insertVideoTransportEventMock.mockResolvedValue(true);
-    findVideoJobByIdMock.mockResolvedValue(
-      createVideoJobRecord({
-        id: 'vjob_progress',
-        current_attempt: 1,
-        pipeline_stage: 'rendering',
-        status: 'processing',
-      }),
-    );
-
-    await service.ingestTransportEvent({
-      schema_version: '2026-03-11',
-      event_id: 'evt_progress',
-      event_type: 'scene.progress',
-      job_id: 'vjob_progress',
-      attempt: 1,
-      worker_id: 'worker-1',
-      occurred_at: '2026-03-11T00:00:20.000Z',
-      payload: {
-        pipeline_stage: 'rendering',
-        progress_pct: 96,
-        render_profile: '720p',
-        scene: {
-          scene_index: 2,
-          status: 'done',
-          template_type: 'bullet',
-          video_object_key:
-            'videos/vjob_progress/artifacts/render/scene-02.mp4',
-        },
-      },
-    });
-
-    expect(touchVideoJobHeartbeatMock).toHaveBeenCalled();
-    expect(updateVideoJobProgressMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        jobId: 'vjob_progress',
-        pipelineStage: 'rendering',
-        progressPct: 96,
-      }),
-    );
-    expect(upsertSceneMock).toHaveBeenCalledWith(
-      'vjob_progress',
-      expect.objectContaining({
-        sceneIndex: 2,
-        status: 'done',
-        videoObjectKey: 'videos/vjob_progress/artifacts/render/scene-02.mp4',
-      }),
-    );
-  });
-
-  it('automatically re-enqueues retryable fail events when attempts remain', async () => {
-    insertVideoTransportEventMock.mockResolvedValue(true);
-    findVideoJobByIdMock
-      .mockResolvedValueOnce(
-        createVideoJobRecord({
-          id: 'vjob_fail',
-          current_attempt: 1,
-          retry_count: 0,
-          status: 'processing',
-          pipeline_stage: 'rendering',
-        }),
-      )
-      .mockResolvedValueOnce(
-        createVideoJobRecord({
-          id: 'vjob_fail',
-          current_attempt: 1,
-          retry_count: 0,
-          status: 'processing',
-          pipeline_stage: 'rendering',
-        }),
-      )
-      .mockResolvedValueOnce(
-        createVideoJobRecord({
-          id: 'vjob_fail',
-          current_attempt: 2,
-          retry_count: 1,
-          status: 'queued',
-        }),
-      );
-
-    await service.ingestTransportEvent({
-      schema_version: '2026-03-11',
-      event_id: 'evt_fail',
-      event_type: 'job.failed',
-      job_id: 'vjob_fail',
-      attempt: 1,
-      worker_id: 'worker-1',
-      occurred_at: '2026-03-11T00:00:30.000Z',
-      payload: {
-        pipeline_stage: 'rendering',
-        error_code: 'RENDER_TIMEOUT',
-        error_message: 'render timed out',
-        is_retryable: true,
-      },
-    });
-
-    expect(markVideoJobFailedMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        jobId: 'vjob_fail',
-        terminalEventId: 'evt_fail',
-      }),
-    );
-    expect(resetVideoJobForRetryMock).toHaveBeenCalledWith('vjob_fail');
-    expect(createVideoOutboxCommandMock).toHaveBeenCalledWith(
-      'vjob_fail',
-      expect.objectContaining({
-        attempt: 2,
-      }),
-      expect.objectContaining({
-        nextAttemptAt: expect.any(Date),
-      }),
-    );
   });
 
   it('publishes completed worker output to Bunny Stream when configured', async () => {

@@ -134,9 +134,8 @@ describe('Video Jobs Routes (e2e)', () => {
         render_profile: '720p',
         quality_gate: {
           storyboard_valid: true,
-          code_valid: true,
+          audio_ready: true,
           render_valid: false,
-          audio_sync_valid: false,
         },
         stages: [],
         scenes: { total: 1, done: 0, failed: 0, running: 1, pending: 0 },
@@ -167,9 +166,8 @@ describe('Video Jobs Routes (e2e)', () => {
           render_profile: '720p',
           quality_gate: {
             storyboard_valid: false,
-            code_valid: false,
+            audio_ready: false,
             render_valid: false,
-            audio_sync_valid: false,
           },
           stages: [],
           scenes: { total: 0, done: 0, failed: 0, running: 0, pending: 0 },

@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import {
   ConflictException,
   Injectable,
@@ -8,6 +7,7 @@ import {
 import type { MessageEvent } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { from, interval, map, Observable, startWith, switchMap } from 'rxjs';
+import { QueueService } from '../../infrastructure/queue/queue.service';
 import { MetricsService } from '../../observability/metrics.service';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { BunnyStreamService } from '../../infrastructure/video-delivery/bunny-stream.service';
@@ -22,7 +22,6 @@ import {
   VIDEO_ACTIVE_JOB_STATUSES,
   VIDEO_DEFAULT_LANGUAGE,
   VIDEO_DEFAULT_QUALITY_GATE,
-  VIDEO_DEFAULT_RENDER_PROFILE,
   VIDEO_DEFAULT_TARGET_DURATION_SEC,
   VIDEO_DEFAULT_VOICE,
   VIDEO_PIPELINE_STAGE_INDEX,
@@ -37,12 +36,6 @@ import {
   VideoJobsRepository,
   type VideoJobRecord,
 } from './video-jobs.repository';
-import {
-  VIDEO_COMMAND_TOPIC,
-  type VideoGenerateCommand,
-  type VideoTransportEvent,
-  type VideoTransportEventType,
-} from './video-transport.schemas';
 
 @Injectable()
 export class VideoJobsService {
@@ -53,6 +46,7 @@ export class VideoJobsService {
   constructor(
     private readonly videoJobsRepository: VideoJobsRepository,
     private readonly documentsService: DocumentsService,
+    private readonly queueService: QueueService,
     private readonly storageService: StorageService,
     private readonly bunnyStreamService: BunnyStreamService,
     private readonly configService: ConfigService,
@@ -246,56 +240,6 @@ export class VideoJobsService {
     return this.videoJobsRepository.findVideoJobById(jobId);
   }
 
-  async ingestTransportEvent(event: VideoTransportEvent): Promise<boolean> {
-    const inserted = await this.recordTransportEvent({
-      eventId: event.event_id,
-      jobId: event.job_id,
-      attempt: event.attempt,
-      eventType: event.event_type,
-      workerId: 'worker_id' in event ? event.worker_id : null,
-      payload: event as unknown as Record<string, unknown>,
-      occurredAt: event.occurred_at,
-    });
-
-    if (!inserted) {
-      return false;
-    }
-
-    switch (event.event_type) {
-      case 'job.accepted':
-        await this.applyTransportLeaseEvent(event);
-        return true;
-      case 'job.heartbeat':
-        await this.applyTransportLeaseEvent(event);
-        return true;
-      case 'job.progress':
-      case 'scene.progress':
-        await this.applyTransportLeaseEvent(event);
-        await this.applyInternalProgress(
-          event.job_id,
-          event.payload,
-          event.event_id,
-        );
-        return true;
-      case 'job.completed':
-        await this.applyTransportLeaseEvent(event);
-        await this.applyInternalComplete(
-          event.job_id,
-          event.payload,
-          event.event_id,
-        );
-        return true;
-      case 'job.failed':
-        await this.applyInternalFail(
-          event.job_id,
-          event.payload,
-          event.event_id,
-        );
-        await this.maybeAutoRetry(event);
-        return true;
-    }
-  }
-
   async recoverStalledJobs(): Promise<number> {
     const stalledJobs = await this.videoJobsRepository.findStalledJobs(
       new Date(),
@@ -371,7 +315,8 @@ export class VideoJobsService {
         plannedDurationMs: payload.scene.planned_duration_ms ?? null,
         actualAudioDurationMs: payload.scene.actual_audio_duration_ms ?? null,
         audioObjectKey: payload.scene.audio_object_key ?? null,
-        manimCodeObjectKey: payload.scene.manim_code_object_key ?? null,
+        sceneDefinitionObjectKey:
+          payload.scene.scene_definition_object_key ?? null,
         videoObjectKey: payload.scene.video_object_key ?? null,
       });
     }
@@ -522,78 +467,23 @@ export class VideoJobsService {
     this.rememberCallback(idempotencyKey);
   }
 
-  async applyTransportAccepted(input: {
-    jobId: string;
-    attempt: number;
-    workerId: string;
-    leaseExpiresAt: Date;
-  }): Promise<void> {
-    const job = await this.videoJobsRepository.findVideoJobById(input.jobId);
-
-    if (!job || job.current_attempt !== input.attempt) {
-      return;
-    }
-
-    await this.videoJobsRepository.markVideoJobAccepted(input);
-  }
-
-  async applyTransportHeartbeat(input: {
-    jobId: string;
-    attempt: number;
-    workerId: string;
-    leaseExpiresAt: Date;
-  }): Promise<void> {
-    const job = await this.videoJobsRepository.findVideoJobById(input.jobId);
-
-    if (!job || job.current_attempt !== input.attempt) {
-      return;
-    }
-
-    await this.videoJobsRepository.touchVideoJobHeartbeat(input);
-  }
-
-  async recordTransportEvent(input: {
-    eventId: string;
-    jobId: string;
-    attempt: number;
-    eventType: VideoTransportEventType;
-    workerId?: string | null;
-    payload: Record<string, unknown>;
-    occurredAt: string;
-  }): Promise<boolean> {
-    return this.videoJobsRepository.insertVideoTransportEvent(input);
-  }
-
   private async enqueueJob(
     job: VideoJobRecord,
     requestId?: string | null,
     delayMs = 0,
   ): Promise<void> {
-    const command: VideoGenerateCommand = {
-      schema_version: '2026-03-11',
-      command_id: crypto.randomUUID(),
-      topic: VIDEO_COMMAND_TOPIC,
-      job_id: job.id,
-      document_id: job.document_id,
-      owner_id: job.owner_id,
-      request_id: requestId ?? null,
-      attempt: job.current_attempt,
-      target_duration_sec: job.target_duration_sec,
-      voice: job.voice,
-      language: job.language,
-      render_profile: job.render_profile ?? VIDEO_DEFAULT_RENDER_PROFILE,
-      ocr_object_key: this.storageService.createDocumentOcrArtifactKey(
-        job.document_id,
-      ),
-      output_prefix: `videos/${job.id}`,
-      correlation_id: requestId ?? job.id,
-      trace_id: requestId ?? null,
-      occurred_at: new Date().toISOString(),
-    };
-
-    await this.videoJobsRepository.createVideoOutboxCommand(job.id, command, {
-      nextAttemptAt: new Date(Date.now() + delayMs),
-    });
+    await this.queueService.enqueueVideoGenerate(
+      {
+        video_job_id: job.id,
+        document_id: job.document_id,
+        actor_id: job.owner_id,
+        request_id: requestId ?? null,
+        attempt: job.current_attempt,
+      },
+      {
+        delayMs,
+      },
+    );
   }
 
   private normalizeQualityGate(
@@ -725,38 +615,6 @@ export class VideoJobsService {
     return refreshed;
   }
 
-  private async resetAndReloadJob(
-    jobId: string,
-  ): Promise<VideoJobRecord | null> {
-    await this.videoJobsRepository.resetVideoJobForRetry(jobId);
-    return this.videoJobsRepository.findVideoJobById(jobId);
-  }
-
-  private async applyTransportLeaseEvent(
-    event: Extract<
-      VideoTransportEvent,
-      | { event_type: 'job.accepted' }
-      | { event_type: 'job.heartbeat' }
-      | { event_type: 'job.progress' }
-      | { event_type: 'scene.progress' }
-      | { event_type: 'job.completed' }
-    >,
-  ): Promise<void> {
-    const input = {
-      jobId: event.job_id,
-      attempt: event.attempt,
-      workerId: event.worker_id,
-      leaseExpiresAt: this.nextLeaseExpiry(),
-    };
-
-    if (event.event_type === 'job.accepted') {
-      await this.applyTransportAccepted(input);
-      return;
-    }
-
-    await this.applyTransportHeartbeat(input);
-  }
-
   private assertMonotonicStage(
     currentStage: VideoPipelineStage,
     nextStage: VideoPipelineStage,
@@ -788,30 +646,6 @@ export class VideoJobsService {
     }
 
     this.callbackIdempotencyKeys.set(idempotencyKey, Date.now());
-  }
-
-  private async maybeAutoRetry(
-    event: Extract<VideoTransportEvent, { event_type: 'job.failed' }>,
-  ): Promise<void> {
-    if (!event.payload.is_retryable) {
-      return;
-    }
-
-    const job = await this.videoJobsRepository.findVideoJobById(event.job_id);
-    if (!job || job.current_attempt >= this.maxAttempts()) {
-      return;
-    }
-
-    const refreshed = await this.resetAndReloadJob(event.job_id);
-    if (!refreshed) {
-      return;
-    }
-
-    await this.enqueueJob(
-      refreshed,
-      null,
-      this.retryDelayMs(refreshed.retry_count),
-    );
   }
 
   private maxAttempts(): number {
@@ -876,10 +710,31 @@ export class VideoJobsService {
   }
 
   private nextLeaseExpiry(): Date {
-    const ttlMs = this.configService.get<number>(
+    const configuredTtlMs = this.configService.get<number>(
       'VIDEO_WORKER_LEASE_TTL_MS',
       45_000,
     );
+    const renderTimeoutMs =
+      this.configService.get<number>('VIDEO_RENDER_TIMEOUT_SEC', 180) * 1000;
+    const creativeTimeoutMs = this.configService.get<number>(
+      'VIDEO_CREATIVE_TIMEOUT_MS',
+      90_000,
+    );
+    const ttsTimeoutMs = this.configService.get<number>(
+      'VIDEO_TTS_TIMEOUT_MS',
+      60_000,
+    );
+    const watchdogPollMs = this.configService.get<number>(
+      'VIDEO_WATCHDOG_POLL_MS',
+      15_000,
+    );
+
+    // Lease must outlive the worst-case single-run render path or the watchdog
+    // will incorrectly recycle healthy long-running jobs.
+    const safeMinimumTtlMs =
+      renderTimeoutMs + creativeTimeoutMs + ttsTimeoutMs + watchdogPollMs * 2;
+    const ttlMs = Math.max(configuredTtlMs, safeMinimumTtlMs);
+
     return new Date(Date.now() + ttlMs);
   }
 

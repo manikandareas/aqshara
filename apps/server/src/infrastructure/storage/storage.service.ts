@@ -5,6 +5,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { createReadStream } from 'node:fs';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -93,6 +94,29 @@ export class StorageService {
     );
   }
 
+  async uploadText(
+    key: string,
+    body: string,
+    contentType: string,
+  ): Promise<void> {
+    await this.uploadObject(key, body, contentType);
+  }
+
+  async uploadFile(
+    key: string,
+    filePath: string,
+    contentType: string,
+  ): Promise<void> {
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: createReadStream(filePath),
+        ContentType: contentType,
+      }),
+    );
+  }
+
   async getObject(key: string) {
     return this.s3Client.send(
       new GetObjectCommand({
@@ -123,6 +147,19 @@ export class StorageService {
 
       throw error;
     }
+  }
+
+  async downloadJson(key: string): Promise<unknown> {
+    const response = await this.getObject(key);
+    const body = response.Body as
+      | { transformToString?: () => Promise<string> }
+      | undefined;
+
+    if (!body?.transformToString) {
+      throw new Error('Stored object body is not readable as JSON');
+    }
+
+    return JSON.parse(await body.transformToString());
   }
 
   async isReady(): Promise<{ ready: boolean }> {

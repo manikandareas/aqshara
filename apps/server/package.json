@@ -32,9 +32,12 @@
     "ops:replay:webhook": "ts-node scripts/ops/replay-webhook.ts"
   },
   "dependencies": {
+    "@aqshara/video-renderer": "workspace:*",
     "@aws-sdk/client-s3": "^3.1004.0",
     "@clerk/backend": "^3.0.1",
     "@mistralai/mistralai": "^1.14.1",
+    "@remotion/bundler": "^4.0.436",
+    "@remotion/renderer": "^4.0.436",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",

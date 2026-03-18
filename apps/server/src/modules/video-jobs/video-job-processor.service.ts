@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { VideoGenerateJobPayload } from './video-job.schemas';
-import { VideoWorkerBridgeService } from './video-worker-bridge.service';
+import type {
+  VideoGenerateJobPayload,
+  VideoWorkerDispatchPayload,
+} from './video-job.schemas';
+import { VideoGenerationRunnerService } from './remotion/video-generation-runner.service';
 import { VideoJobsService } from './video-jobs.service';
 
 @Injectable()
@@ -9,7 +12,7 @@ export class VideoJobProcessorService {
 
   constructor(
     private readonly videoJobsService: VideoJobsService,
-    private readonly videoWorkerBridgeService: VideoWorkerBridgeService,
+    private readonly videoGenerationRunnerService: VideoGenerationRunnerService,
   ) {}
 
   async process(job: VideoGenerateJobPayload): Promise<void> {
@@ -22,7 +25,7 @@ export class VideoJobProcessorService {
     }
 
     this.logger.log({
-      message: 'Dispatching video generation job to Python worker',
+      message: 'Dispatching video generation job to Remotion runner',
       video_job_id: job.video_job_id,
       document_id: job.document_id,
       actor_id: job.actor_id,
@@ -30,12 +33,14 @@ export class VideoJobProcessorService {
       attempt: job.attempt,
     });
 
-    await this.videoWorkerBridgeService.run({
+    const dispatchPayload: VideoWorkerDispatchPayload = {
       ...job,
       target_duration_sec: current.target_duration_sec,
       voice: current.voice,
       language: current.language,
-    });
+    };
+
+    await this.videoGenerationRunnerService.run(dispatchPayload);
   }
 
   async processDlq(job: VideoGenerateJobPayload): Promise<void> {

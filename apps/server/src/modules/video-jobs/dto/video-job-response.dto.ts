@@ -66,13 +66,10 @@ export class VideoJobQualityGateDto {
   storyboard_valid!: boolean;
 
   @ApiProperty()
-  code_valid!: boolean;
+  audio_ready!: boolean;
 
   @ApiProperty()
   render_valid!: boolean;
-
-  @ApiProperty()
-  audio_sync_valid!: boolean;
 }
 
 export class VideoJobSceneCountsDto {

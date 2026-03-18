@@ -50,6 +50,10 @@ export class VideoJobWatchdogService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn({
           message: 'Recovered stalled video jobs',
           count: recovered,
+          lease_ttl_ms: this.configService.get<number>(
+            'VIDEO_WORKER_LEASE_TTL_MS',
+            45_000,
+          ),
         });
       }
     } catch (error) {

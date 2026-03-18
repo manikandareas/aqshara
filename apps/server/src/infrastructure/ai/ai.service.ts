@@ -7,7 +7,38 @@ import {
   DEFAULT_OPENAI_GLOSSARY_TIMEOUT_MS,
   DEFAULT_OPENAI_TRANSLATION_MODEL,
   DEFAULT_OPENAI_TRANSLATION_TIMEOUT_MS,
+  DEFAULT_OPENAI_VIDEO_CREATIVE_MODEL,
+  DEFAULT_OPENAI_VIDEO_CREATIVE_TIMEOUT_MS,
 } from './ai.constants';
+
+type VideoCreativePlanResult = {
+  topic: string;
+  summary: {
+    topic: string;
+    hook: string;
+    problem: string;
+    method: string;
+    result: string;
+    takeaway: string;
+    source_excerpt_count: number;
+  };
+  scenes: Array<{
+    sceneIndex: number;
+    templateType:
+      | 'hook'
+      | 'problem'
+      | 'mechanism'
+      | 'evidence'
+      | 'takeaway';
+    title: string;
+    body: string;
+    bullets: string[];
+    narrationText: string;
+    transition: 'none' | 'fade' | 'slide' | 'wipe';
+    accentColor?: string | null;
+    emphasisTerms?: string[];
+  }>;
+};
 
 @Injectable()
 export class AiService {
@@ -16,6 +47,8 @@ export class AiService {
   private readonly translationTimeoutMs: number;
   private readonly glossaryModel: string;
   private readonly glossaryTimeoutMs: number;
+  private readonly videoCreativeModel: string;
+  private readonly videoCreativeTimeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.client = new OpenAI({
@@ -37,6 +70,14 @@ export class AiService {
     this.glossaryTimeoutMs = this.configService.get<number>(
       'OPENAI_GLOSSARY_TIMEOUT_MS',
       DEFAULT_OPENAI_GLOSSARY_TIMEOUT_MS,
+    );
+    this.videoCreativeModel = this.configService.get<string>(
+      'VIDEO_CREATIVE_MODEL',
+      DEFAULT_OPENAI_VIDEO_CREATIVE_MODEL,
+    );
+    this.videoCreativeTimeoutMs = this.configService.get<number>(
+      'VIDEO_CREATIVE_TIMEOUT_MS',
+      DEFAULT_OPENAI_VIDEO_CREATIVE_TIMEOUT_MS,
     );
   }
 
@@ -210,6 +251,77 @@ export class AiService {
     return this.parseGlossaryResponse(content);
   }
 
+  async generateVideoCreativePlan(input: {
+    topic: string;
+    sourceText: string;
+    targetLanguage: 'en' | 'id';
+    targetDurationSec: number;
+    sourceExcerptCount: number;
+  }): Promise<VideoCreativePlanResult> {
+    const languageLabel =
+      input.targetLanguage === 'id' ? 'Indonesian' : 'English';
+
+    const completion = await withTimeout(
+      this.client.chat.completions.create({
+        model: this.videoCreativeModel,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You create short educational video plans for deterministic React templates. Respond with strict JSON only. Never include markdown fences or commentary.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              instruction:
+                'Create a 5-scene creative plan for a short explainer video. Use only template types hook, problem, mechanism, evidence, takeaway. Use only transitions fade, slide, wipe, none. All text must be in the requested language. Each scene must include title, body, up to 3 bullets, narrationText, and an optional accentColor hex string.',
+              topic: input.topic,
+              target_language: languageLabel,
+              target_duration_sec: input.targetDurationSec,
+              source_excerpt_count: input.sourceExcerptCount,
+              required_json_shape: {
+                topic: 'string',
+                summary: {
+                  topic: 'string',
+                  hook: 'string',
+                  problem: 'string',
+                  method: 'string',
+                  result: 'string',
+                  takeaway: 'string',
+                  source_excerpt_count: 'number',
+                },
+                scenes: [
+                  {
+                    sceneIndex: 1,
+                    templateType: 'hook',
+                    title: 'string',
+                    body: 'string',
+                    bullets: ['string'],
+                    narrationText: 'string',
+                    transition: 'fade',
+                    accentColor: '#38bdf8',
+                    emphasisTerms: ['string'],
+                  },
+                ],
+              },
+              source_text: input.sourceText,
+            }),
+          },
+        ],
+        temperature: 0.2,
+      }),
+      this.videoCreativeTimeoutMs,
+      'OpenAI video creative planning timed out',
+    );
+
+    const content = completion.choices[0]?.message?.content;
+    if (typeof content !== 'string' || content.trim().length === 0) {
+      throw new Error('OpenAI video creative response did not contain text');
+    }
+
+    return this.parseVideoCreativePlan(content);
+  }
+
   private normalizeSourceLanguage(value: string): 'en' | 'id' | 'unknown' {
     const normalized = value.trim().toLowerCase();
     if (normalized === 'en') {
@@ -300,5 +412,125 @@ export class AiService {
           paragraph_ids: string[];
         } => row !== null,
       );
+  }
+
+  private parseVideoCreativePlan(raw: string): VideoCreativePlanResult {
+    const parsed = this.parseJsonObject(raw, 'OpenAI video creative response');
+    const scenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
+
+    if (typeof parsed.topic !== 'string' || parsed.topic.trim().length === 0) {
+      throw new Error('OpenAI video creative response is missing topic');
+    }
+    if (!parsed.summary || typeof parsed.summary !== 'object') {
+      throw new Error('OpenAI video creative response is missing summary');
+    }
+    if (scenes.length !== 5) {
+      throw new Error('OpenAI video creative response must contain 5 scenes');
+    }
+
+    const summarySource = parsed.summary as Record<string, unknown>;
+
+    return {
+      topic: parsed.topic.trim(),
+      summary: {
+        topic: this.requireText(summarySource.topic, 'summary.topic'),
+        hook: this.requireText(summarySource.hook, 'summary.hook'),
+        problem: this.requireText(summarySource.problem, 'summary.problem'),
+        method: this.requireText(summarySource.method, 'summary.method'),
+        result: this.requireText(summarySource.result, 'summary.result'),
+        takeaway: this.requireText(summarySource.takeaway, 'summary.takeaway'),
+        source_excerpt_count:
+          typeof summarySource.source_excerpt_count === 'number'
+            ? summarySource.source_excerpt_count
+            : 0,
+      },
+      scenes: scenes.map((scene, index) => {
+        if (!scene || typeof scene !== 'object') {
+          throw new Error('OpenAI video creative scene is invalid');
+        }
+
+        const source = scene as Record<string, unknown>;
+        return {
+          sceneIndex:
+            typeof source.sceneIndex === 'number' ? source.sceneIndex : index + 1,
+          templateType: this.requireSceneTemplate(source.templateType),
+          title: this.requireText(source.title, `scenes[${index}].title`),
+          body: this.requireText(source.body, `scenes[${index}].body`),
+          bullets: this.parseStringArray(source.bullets, 3),
+          narrationText: this.requireText(
+            source.narrationText,
+            `scenes[${index}].narrationText`,
+          ),
+          transition: this.requireSceneTransition(source.transition),
+          accentColor:
+            typeof source.accentColor === 'string' ? source.accentColor : null,
+          emphasisTerms: this.parseStringArray(source.emphasisTerms, 3),
+        };
+      }),
+    };
+  }
+
+  private parseJsonObject(raw: string, label: string): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error(`${label} is not a JSON object`);
+      }
+
+      return parsed as Record<string, unknown>;
+    } catch {
+      throw new Error(`${label} is not valid JSON`);
+    }
+  }
+
+  private requireText(value: unknown, field: string): string {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`OpenAI video creative response is missing ${field}`);
+    }
+
+    return value.trim();
+  }
+
+  private parseStringArray(value: unknown, limit: number): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .slice(0, limit);
+  }
+
+  private requireSceneTemplate(
+    value: unknown,
+  ): 'hook' | 'problem' | 'mechanism' | 'evidence' | 'takeaway' {
+    if (
+      value === 'hook' ||
+      value === 'problem' ||
+      value === 'mechanism' ||
+      value === 'evidence' ||
+      value === 'takeaway'
+    ) {
+      return value;
+    }
+
+    throw new Error(`Unsupported AI template type: ${String(value)}`);
+  }
+
+  private requireSceneTransition(
+    value: unknown,
+  ): 'none' | 'fade' | 'slide' | 'wipe' {
+    if (
+      value === 'none' ||
+      value === 'fade' ||
+      value === 'slide' ||
+      value === 'wipe'
+    ) {
+      return value;
+    }
+
+    throw new Error(`Unsupported AI transition type: ${String(value)}`);
   }
 }

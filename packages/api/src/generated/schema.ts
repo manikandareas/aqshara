@@ -800,9 +800,8 @@ export interface components {
         };
         VideoJobQualityGateDto: {
             storyboard_valid: boolean;
-            code_valid: boolean;
+            audio_ready: boolean;
             render_valid: boolean;
-            audio_sync_valid: boolean;
         };
         VideoJobStageDto: {
             name: string;
@@ -864,9 +863,8 @@ export interface components {
         };
         InternalVideoQualityGateDto: {
             storyboard_valid?: boolean;
-            code_valid?: boolean;
+            audio_ready?: boolean;
             render_valid?: boolean;
-            audio_sync_valid?: boolean;
         };
         InternalVideoSceneProgressDto: {
             scene_index: number;
@@ -885,7 +883,7 @@ export interface components {
         };
         InternalVideoProgressDto: {
             /** @enum {string} */
-            pipeline_stage: "queued" | "preprocessing" | "summarizing" | "storyboarding" | "storyboard_validating" | "tts_generating" | "code_validating" | "rendering" | "merging" | "uploading" | "stream_processing" | "completed" | "failed";
+            pipeline_stage: "queued" | "preprocessing" | "storyboarding" | "tts_generating" | "rendering" | "uploading" | "stream_processing" | "completed" | "failed";
             progress_pct: number;
             message?: string;
             fallback_applied?: boolean;
@@ -906,7 +904,7 @@ export interface components {
         };
         InternalVideoFailDto: {
             /** @enum {string} */
-            pipeline_stage: "queued" | "preprocessing" | "summarizing" | "storyboarding" | "storyboard_validating" | "tts_generating" | "code_validating" | "rendering" | "merging" | "uploading" | "stream_processing" | "completed" | "failed";
+            pipeline_stage: "queued" | "preprocessing" | "storyboarding" | "tts_generating" | "rendering" | "uploading" | "stream_processing" | "completed" | "failed";
             error_code: string;
             error_message: string;
             is_retryable?: boolean;

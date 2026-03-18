@@ -1,5 +1,5 @@
 import { VideoJobProcessorService } from '../video-job-processor.service';
-import { VideoWorkerBridgeService } from '../video-worker-bridge.service';
+import { VideoGenerationRunnerService } from '../remotion/video-generation-runner.service';
 import { VideoJobsService } from '../video-jobs.service';
 
 describe('VideoJobProcessorService', () => {
@@ -12,13 +12,13 @@ describe('VideoJobProcessorService', () => {
     applyInternalFail: applyInternalFailMock,
   } as unknown as VideoJobsService;
 
-  const videoWorkerBridgeService = {
+  const videoGenerationRunnerService = {
     run: runMock,
-  } as unknown as VideoWorkerBridgeService;
+  } as unknown as VideoGenerationRunnerService;
 
   const service = new VideoJobProcessorService(
     videoJobsService,
-    videoWorkerBridgeService,
+    videoGenerationRunnerService,
   );
 
   beforeEach(() => {
@@ -56,7 +56,7 @@ describe('VideoJobProcessorService', () => {
     expect(runMock).not.toHaveBeenCalled();
   });
 
-  it('dispatches active jobs to the python worker bridge', async () => {
+  it('dispatches active jobs to the remotion runner', async () => {
     getVideoJobForWorkerMock.mockResolvedValue({
       id: 'vjob_2',
       status: 'processing',

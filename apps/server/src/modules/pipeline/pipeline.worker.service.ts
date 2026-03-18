@@ -19,6 +19,7 @@ import {
 import { VideoJobRoutingService } from '../video-jobs/video-job-routing.service';
 import { VideoJobProcessorService } from '../video-jobs/video-job-processor.service';
 import { parseVideoGenerateJobPayload } from '../video-jobs/video-job.schemas';
+import { isVideoRenderTerminalError } from '../video-jobs/remotion/video-render.errors';
 
 @Injectable()
 export class PipelineWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -223,10 +224,12 @@ export class PipelineWorkerService implements OnModuleInit, OnModuleDestroy {
             });
             await this.videoJobProcessor.process(payload);
           } catch (error) {
-            await this.videoJobRoutingService.routeVideoGenerateToRetryOrDlq(
-              job,
-              false,
-            );
+            if (!isVideoRenderTerminalError(error)) {
+              await this.videoJobRoutingService.routeVideoGenerateToRetryOrDlq(
+                job,
+                false,
+              );
+            }
             throw error;
           }
         },
@@ -252,10 +255,12 @@ export class PipelineWorkerService implements OnModuleInit, OnModuleDestroy {
             });
             await this.videoJobProcessor.process(payload);
           } catch (error) {
-            await this.videoJobRoutingService.routeVideoGenerateToRetryOrDlq(
-              job,
-              true,
-            );
+            if (!isVideoRenderTerminalError(error)) {
+              await this.videoJobRoutingService.routeVideoGenerateToRetryOrDlq(
+                job,
+                true,
+              );
+            }
             throw error;
           }
         },

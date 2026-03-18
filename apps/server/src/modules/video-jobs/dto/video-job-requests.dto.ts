@@ -104,7 +104,7 @@ export class InternalVideoSceneProgressDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  manim_code_object_key?: string;
+  scene_definition_object_key?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -122,17 +122,12 @@ export class InternalVideoQualityGateDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  code_valid?: boolean;
+  audio_ready?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   render_valid?: boolean;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsBoolean()
-  audio_sync_valid?: boolean;
 }
 
 export class InternalVideoMetricsDto {

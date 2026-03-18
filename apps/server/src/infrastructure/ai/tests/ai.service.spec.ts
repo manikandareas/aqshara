@@ -34,6 +34,18 @@ describe('AiService', () => {
         if (key === 'OPENAI_TRANSLATION_TIMEOUT_MS') {
           return 60_000;
         }
+        if (key === 'OPENAI_GLOSSARY_MODEL') {
+          return 'gpt-4.1';
+        }
+        if (key === 'OPENAI_GLOSSARY_TIMEOUT_MS') {
+          return 90_000;
+        }
+        if (key === 'VIDEO_CREATIVE_MODEL') {
+          return 'gpt-4.1';
+        }
+        if (key === 'VIDEO_CREATIVE_TIMEOUT_MS') {
+          return 90_000;
+        }
         return defaultValue;
       }),
     } as unknown as ConfigService;
@@ -134,5 +146,104 @@ describe('AiService', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.term_en).toBe('Attention Mechanism');
     expect(result[0]?.paragraph_ids).toEqual(['p_1', 'p_2']);
+  });
+
+  it('parses structured video creative plans', async () => {
+    createMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              topic: 'Transformers',
+              summary: {
+                topic: 'Transformers',
+                hook: 'Transformers changed sequence modeling.',
+                problem: 'RNNs struggle with long-range dependencies.',
+                method: 'Attention enables direct token-to-token context.',
+                result: 'Transformers improve quality and scalability.',
+                takeaway: 'Attention is the core mechanism to remember.',
+                source_excerpt_count: 8,
+              },
+              scenes: [
+                {
+                  sceneIndex: 1,
+                  templateType: 'hook',
+                  title: 'Why Transformers Matter',
+                  body: 'Transformers reshaped modern AI systems.',
+                  bullets: ['Attention', 'Scale', 'Parallelism'],
+                  narrationText:
+                    'Transformers reshaped modern AI by scaling attention.',
+                  transition: 'fade',
+                },
+                {
+                  sceneIndex: 2,
+                  templateType: 'problem',
+                  title: 'The Problem',
+                  body: 'Older sequence models forget distant context.',
+                  bullets: ['Long context', 'Slow recurrence'],
+                  narrationText: 'Older sequence models forget distant context.',
+                  transition: 'slide',
+                },
+                {
+                  sceneIndex: 3,
+                  templateType: 'mechanism',
+                  title: 'The Mechanism',
+                  body: 'Attention compares every token with every other token.',
+                  bullets: ['Queries', 'Keys', 'Values'],
+                  narrationText: 'Attention compares tokens directly.',
+                  transition: 'wipe',
+                },
+                {
+                  sceneIndex: 4,
+                  templateType: 'evidence',
+                  title: 'The Evidence',
+                  body: 'Performance and scale improved across tasks.',
+                  bullets: ['Quality', 'Scale'],
+                  narrationText: 'Results improved across benchmarks.',
+                  transition: 'fade',
+                },
+                {
+                  sceneIndex: 5,
+                  templateType: 'takeaway',
+                  title: 'The Takeaway',
+                  body: 'Attention became the default sequence primitive.',
+                  bullets: ['Flexible', 'Scalable'],
+                  narrationText: 'Attention became the default sequence primitive.',
+                  transition: 'none',
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    const result = await service.generateVideoCreativePlan({
+      topic: 'Transformers',
+      sourceText: 'Excerpt 1: Transformers changed sequence modeling.',
+      targetLanguage: 'en',
+      targetDurationSec: 60,
+      sourceExcerptCount: 8,
+    });
+
+    expect(result.topic).toBe('Transformers');
+    expect(result.scenes).toHaveLength(5);
+    expect(result.scenes[2]?.templateType).toBe('mechanism');
+  });
+
+  it('rejects invalid video creative JSON', async () => {
+    createMock.mockResolvedValue({
+      choices: [{ message: { content: '{"topic":"Broken"}' } }],
+    });
+
+    await expect(
+      service.generateVideoCreativePlan({
+        topic: 'Broken',
+        sourceText: 'Excerpt 1: Broken',
+        targetLanguage: 'en',
+        targetDurationSec: 60,
+        sourceExcerptCount: 1,
+      }),
+    ).rejects.toThrow('OpenAI video creative response is missing summary');
   });
 });

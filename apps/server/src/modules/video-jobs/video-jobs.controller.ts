@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -15,8 +14,6 @@ import {
   ApiAcceptedResponse,
   ApiBearerAuth,
   ApiConflictResponse,
-  ApiHeader,
-  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -29,24 +26,15 @@ import {
 import { Observable } from 'rxjs';
 import { ApiErrorEnvelopeDto } from '../../openapi/swagger.schemas';
 import { CurrentUserId } from '../auth/decorators/current-user-id.decorator';
-import { Public } from '../auth/decorators/public.decorator';
 import type { AuthenticatedRequest } from '../auth/interfaces/authenticated-request.interface';
 import {
   CreateVideoJobRequestDto,
-  InternalVideoCompleteDto,
-  InternalVideoFailDto,
-  InternalVideoProgressDto,
   RetryVideoJobRequestDto,
   VideoJobEnvelopeDto,
   VideoJobResultEnvelopeDto,
   VideoJobStatusEnvelopeDto,
   VideoJobStatusStreamEventDto,
 } from './dto';
-import {
-  VIDEO_INTERNAL_IDEMPOTENCY_HEADER,
-  VIDEO_INTERNAL_TOKEN_HEADER,
-} from './video-jobs.constants';
-import { VideoJobsInternalAuthService } from './video-jobs-internal-auth.service';
 import { VideoJobsService } from './video-jobs.service';
 
 @ApiTags('Video Jobs')
@@ -144,72 +132,5 @@ export class VideoJobsController {
     @Param('job_id') jobId: string,
   ) {
     return this.videoJobsService.getVideoJobResult(jobId, userId);
-  }
-}
-
-@ApiTags('Internal Video Jobs')
-@Public()
-@Controller('internal/video-jobs')
-export class InternalVideoJobsController {
-  constructor(
-    private readonly videoJobsService: VideoJobsService,
-    private readonly internalAuthService: VideoJobsInternalAuthService,
-  ) {}
-
-  @Post(':job_id/progress')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Record video job progress from worker callbacks' })
-  @ApiParam({ name: 'job_id' })
-  @ApiHeader({ name: VIDEO_INTERNAL_TOKEN_HEADER })
-  @ApiHeader({ name: VIDEO_INTERNAL_IDEMPOTENCY_HEADER, required: false })
-  @ApiNoContentResponse()
-  async updateProgress(
-    @Param('job_id') jobId: string,
-    @Body() body: InternalVideoProgressDto,
-    @Headers(VIDEO_INTERNAL_TOKEN_HEADER) token: string | undefined,
-    @Headers(VIDEO_INTERNAL_IDEMPOTENCY_HEADER) idempotencyKey:
-      | string
-      | undefined,
-  ): Promise<void> {
-    this.internalAuthService.assertValid(token);
-    await this.videoJobsService.applyInternalProgress(jobId, body, idempotencyKey);
-  }
-
-  @Post(':job_id/complete')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Mark a video job as completed' })
-  @ApiParam({ name: 'job_id' })
-  @ApiHeader({ name: VIDEO_INTERNAL_TOKEN_HEADER })
-  @ApiHeader({ name: VIDEO_INTERNAL_IDEMPOTENCY_HEADER, required: false })
-  @ApiNoContentResponse()
-  async markComplete(
-    @Param('job_id') jobId: string,
-    @Body() body: InternalVideoCompleteDto,
-    @Headers(VIDEO_INTERNAL_TOKEN_HEADER) token: string | undefined,
-    @Headers(VIDEO_INTERNAL_IDEMPOTENCY_HEADER) idempotencyKey:
-      | string
-      | undefined,
-  ): Promise<void> {
-    this.internalAuthService.assertValid(token);
-    await this.videoJobsService.applyInternalComplete(jobId, body, idempotencyKey);
-  }
-
-  @Post(':job_id/fail')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Mark a video job as failed' })
-  @ApiParam({ name: 'job_id' })
-  @ApiHeader({ name: VIDEO_INTERNAL_TOKEN_HEADER })
-  @ApiHeader({ name: VIDEO_INTERNAL_IDEMPOTENCY_HEADER, required: false })
-  @ApiNoContentResponse()
-  async markFailed(
-    @Param('job_id') jobId: string,
-    @Body() body: InternalVideoFailDto,
-    @Headers(VIDEO_INTERNAL_TOKEN_HEADER) token: string | undefined,
-    @Headers(VIDEO_INTERNAL_IDEMPOTENCY_HEADER) idempotencyKey:
-      | string
-      | undefined,
-  ): Promise<void> {
-    this.internalAuthService.assertValid(token);
-    await this.videoJobsService.applyInternalFail(jobId, body, idempotencyKey);
   }
 }

@@ -16,7 +16,7 @@ export function Navbar() {
   };
 
   return (
-    <header className="relative max-w-7xl mx-auto flex items-center justify-between h-[60px] px-6 bg-background">
+    <header className="relative max-w-6xl mx-auto flex items-center justify-between h-[60px] px-6 bg-background">
       <Link href="/home" className="flex items-center gap-2 group">
         <span className="font-bold text-xl tracking-tight text-foreground group-hover:opacity-80 transition-opacity hidden sm:inline-block">
           aqshara

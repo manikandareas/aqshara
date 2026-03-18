@@ -10,6 +10,7 @@ import { PipelineTranslationRetryProcessorService } from '../src/modules/pipelin
 import { PipelineWorkerService } from '../src/modules/pipeline/pipeline.worker.service';
 import { VideoJobProcessorService } from '../src/modules/video-jobs/video-job-processor.service';
 import { VideoJobRoutingService } from '../src/modules/video-jobs/video-job-routing.service';
+import { VideoRenderTerminalError } from '../src/modules/video-jobs/remotion/video-render.errors';
 import { MetricsService } from '../src/observability/metrics.service';
 
 type Runtime = {
@@ -419,5 +420,49 @@ describe('Queue reliability integration (Redis + BullMQ)', () => {
     expect(metrics).toContain(
       `queue="${runtime.names.videoGenerateDlq}",status="enqueued"`,
     );
+  });
+
+  it('does not retry terminal video render failures', async () => {
+    const created = createRuntime();
+    runtime = created.runtime;
+
+    created.videoProcessorMocks.process.mockRejectedValue(
+      new VideoRenderTerminalError(
+        'Network error fetching local staged asset is terminal',
+      ),
+    );
+
+    await runtime.queueService.enqueueVideoGenerate({
+      video_job_id: 'vjob_terminal',
+      document_id: 'doc_video_terminal',
+      actor_id: 'user_video',
+      request_id: 'req_video_terminal',
+      attempt: 1,
+    });
+
+    await waitFor(
+      () => created.videoProcessorMocks.process.mock.calls.length === 1,
+    );
+
+    await sleep(250);
+
+    const retryCounts =
+      await runtime.inspectors.videoGenerateRetry.getJobCounts(
+        'waiting',
+        'active',
+        'delayed',
+        'failed',
+        'completed',
+      );
+    const dlqCounts = await runtime.inspectors.videoGenerateDlq.getJobCounts(
+      'waiting',
+      'active',
+      'delayed',
+      'failed',
+      'completed',
+    );
+
+    expect(Object.values(retryCounts).reduce((a, b) => a + b, 0)).toBe(0);
+    expect(Object.values(dlqCounts).reduce((a, b) => a + b, 0)).toBe(0);
   });
 });

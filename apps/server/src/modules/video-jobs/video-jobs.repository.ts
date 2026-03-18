@@ -3,10 +3,6 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { DatabaseService } from '../../infrastructure/database/database.service';
 import type {
-  VideoGenerateCommand,
-  VideoTransportEventType,
-} from './video-transport.schemas';
-import type {
   VideoPipelineStage,
   VideoQualityGate,
   VideoRenderProfile,
@@ -49,31 +45,6 @@ type VideoJobRow = {
   completed_at: Date | null;
 };
 
-type VideoJobOutboxRow = {
-  id: string;
-  video_job_id: string;
-  topic: string;
-  payload: VideoGenerateCommand;
-  attempt_count: number;
-  next_attempt_at: Date;
-  last_error: string | null;
-  published_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
-};
-
-type VideoJobEventRow = {
-  id: string;
-  event_id: string;
-  video_job_id: string;
-  attempt: number;
-  event_type: VideoTransportEventType;
-  worker_id: string | null;
-  payload: Record<string, unknown>;
-  occurred_at: Date;
-  created_at: Date;
-};
-
 type SceneCountsRow = {
   total: string;
   done: string;
@@ -95,7 +66,6 @@ type StalledJobRow = {
 };
 
 export type VideoJobRecord = VideoJobRow;
-export type VideoJobOutboxRecord = VideoJobOutboxRow;
 
 export type VideoSceneProgressInput = {
   sceneIndex: number;
@@ -105,7 +75,7 @@ export type VideoSceneProgressInput = {
   actualAudioDurationMs?: number | null;
   videoObjectKey?: string | null;
   audioObjectKey?: string | null;
-  manimCodeObjectKey?: string | null;
+  sceneDefinitionObjectKey?: string | null;
   errorMessage?: string | null;
 };
 
@@ -126,16 +96,6 @@ export type UpdateVideoJobProgressInput = {
   fallbackIncrement?: number;
   renderProfile?: VideoRenderProfile;
   qualityGate?: VideoQualityGate;
-};
-
-export type InsertVideoTransportEventInput = {
-  eventId: string;
-  jobId: string;
-  attempt: number;
-  eventType: VideoTransportEventType;
-  workerId?: string | null;
-  payload: Record<string, unknown>;
-  occurredAt: string;
 };
 
 @Injectable()
@@ -179,141 +139,6 @@ export class VideoJobsRepository {
     );
 
     return result.rows[0]!;
-  }
-
-  async createVideoOutboxCommand(
-    jobId: string,
-    command: VideoGenerateCommand,
-    options?: { client?: PoolClient; nextAttemptAt?: Date },
-  ): Promise<void> {
-    const nextAttemptAt = options?.nextAttemptAt ?? new Date();
-    const query = options?.client
-      ? options.client.query.bind(options.client)
-      : this.databaseService.query.bind(this.databaseService);
-
-    await query(
-      `
-      INSERT INTO video_job_outbox (
-        id,
-        video_job_id,
-        topic,
-        payload,
-        attempt_count,
-        next_attempt_at,
-        last_error,
-        published_at,
-        created_at,
-        updated_at
-      ) VALUES (
-        $1, $2, $3, $4::jsonb, 0, $5, NULL, NULL, now(), now()
-      )
-      `,
-      [
-        randomUUID(),
-        jobId,
-        command.topic,
-        JSON.stringify(command),
-        nextAttemptAt.toISOString(),
-      ],
-    );
-  }
-
-  async claimPendingOutbox(limit: number): Promise<VideoJobOutboxRow[]> {
-    const result = await this.databaseService.query<VideoJobOutboxRow>(
-      `
-      WITH claimed AS (
-        SELECT id
-        FROM video_job_outbox
-        WHERE published_at IS NULL
-          AND next_attempt_at <= now()
-        ORDER BY created_at
-        LIMIT $1
-        FOR UPDATE SKIP LOCKED
-      )
-      UPDATE video_job_outbox AS outbox
-      SET
-        attempt_count = outbox.attempt_count + 1,
-        next_attempt_at = now() + interval '30 seconds',
-        updated_at = now()
-      FROM claimed
-      WHERE outbox.id = claimed.id
-      RETURNING outbox.*
-      `,
-      [limit],
-    );
-
-    return result.rows.map((row) => ({
-      ...row,
-      payload: this.parseJson(row.payload) as VideoGenerateCommand,
-    }));
-  }
-
-  async markOutboxPublished(outboxId: string): Promise<void> {
-    await this.databaseService.query(
-      `
-      UPDATE video_job_outbox
-      SET
-        published_at = now(),
-        last_error = NULL,
-        updated_at = now()
-      WHERE id = $1
-      `,
-      [outboxId],
-    );
-  }
-
-  async markOutboxFailed(
-    outboxId: string,
-    errorMessage: string,
-    nextAttemptAt: Date,
-  ): Promise<void> {
-    await this.databaseService.query(
-      `
-      UPDATE video_job_outbox
-      SET
-        last_error = $2,
-        next_attempt_at = $3,
-        updated_at = now()
-      WHERE id = $1
-      `,
-      [outboxId, errorMessage, nextAttemptAt.toISOString()],
-    );
-  }
-
-  async insertVideoTransportEvent(
-    input: InsertVideoTransportEventInput,
-  ): Promise<boolean> {
-    const result = await this.databaseService.query<{ id: string }>(
-      `
-      INSERT INTO video_job_events (
-        id,
-        event_id,
-        video_job_id,
-        attempt,
-        event_type,
-        worker_id,
-        payload,
-        occurred_at,
-        created_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7::jsonb, $8, now()
-      )
-      ON CONFLICT (event_id) DO NOTHING
-      RETURNING id
-      `,
-      [
-        randomUUID(),
-        input.eventId,
-        input.jobId,
-        input.attempt,
-        input.eventType,
-        input.workerId ?? null,
-        JSON.stringify(input.payload),
-        input.occurredAt,
-      ],
-    );
-
-    return (result.rowCount ?? 0) > 0;
   }
 
   async findOwnedVideoJobById(
@@ -488,9 +313,8 @@ export class VideoJobsRepository {
         input.jobId,
         JSON.stringify({
           storyboard_valid: true,
-          code_valid: true,
+          audio_ready: true,
           render_valid: true,
-          audio_sync_valid: true,
         }),
         input.bunnyStatus ?? null,
         input.terminalEventId ?? null,
@@ -531,9 +355,8 @@ export class VideoJobsRepository {
         input.durationSec,
         JSON.stringify({
           storyboard_valid: true,
-          code_valid: true,
+          audio_ready: true,
           render_valid: true,
-          audio_sync_valid: true,
         }),
         input.resolution,
         input.terminalEventId ?? null,
@@ -578,9 +401,8 @@ export class VideoJobsRepository {
         input.bunnyLibraryId,
         JSON.stringify({
           storyboard_valid: true,
-          code_valid: true,
+          audio_ready: true,
           render_valid: true,
-          audio_sync_valid: true,
         }),
         input.bunnyVideoId,
         input.bunnyStatus ?? null,
@@ -739,7 +561,7 @@ export class VideoJobsRepository {
         actual_audio_duration_ms,
         render_status,
         retry_count,
-        manim_code_object_key,
+        scene_definition_object_key,
         audio_object_key,
         video_object_key,
         error_message
@@ -752,7 +574,7 @@ export class VideoJobsRepository {
         planned_duration_ms = COALESCE(EXCLUDED.planned_duration_ms, video_job_scenes.planned_duration_ms),
         actual_audio_duration_ms = COALESCE(EXCLUDED.actual_audio_duration_ms, video_job_scenes.actual_audio_duration_ms),
         render_status = EXCLUDED.render_status,
-        manim_code_object_key = COALESCE(EXCLUDED.manim_code_object_key, video_job_scenes.manim_code_object_key),
+        scene_definition_object_key = COALESCE(EXCLUDED.scene_definition_object_key, video_job_scenes.scene_definition_object_key),
         audio_object_key = COALESCE(EXCLUDED.audio_object_key, video_job_scenes.audio_object_key),
         video_object_key = COALESCE(EXCLUDED.video_object_key, video_job_scenes.video_object_key),
         error_message = COALESCE(EXCLUDED.error_message, video_job_scenes.error_message),
@@ -766,7 +588,7 @@ export class VideoJobsRepository {
         input.plannedDurationMs ?? null,
         input.actualAudioDurationMs ?? null,
         input.status,
-        input.manimCodeObjectKey ?? null,
+        input.sceneDefinitionObjectKey ?? null,
         input.audioObjectKey ?? null,
         input.videoObjectKey ?? null,
         input.errorMessage ?? null,
@@ -842,24 +664,11 @@ export class VideoJobsRepository {
     );
   }
 
-  private parseJson(value: unknown): Record<string, unknown> {
-    if (!value) {
-      return {};
-    }
-
-    if (typeof value === 'string') {
-      return JSON.parse(value) as Record<string, unknown>;
-    }
-
-    return value as Record<string, unknown>;
-  }
-
   private defaultQualityGate(): VideoQualityGate {
     return {
       storyboard_valid: false,
-      code_valid: false,
+      audio_ready: false,
       render_valid: false,
-      audio_sync_valid: false,
     };
   }
 

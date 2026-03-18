@@ -295,67 +295,6 @@ export const videoJobs = pgTable(
   ],
 );
 
-export const videoJobOutbox = pgTable(
-  'video_job_outbox',
-  {
-    id: text('id').primaryKey(),
-    videoJobId: text('video_job_id')
-      .notNull()
-      .references(() => videoJobs.id, { onDelete: 'cascade' }),
-    topic: text('topic').notNull(),
-    payload: jsonb('payload').notNull(),
-    attemptCount: integer('attempt_count').notNull().default(0),
-    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    lastError: text('last_error'),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    index('video_job_outbox_publish_idx').on(
-      table.publishedAt,
-      table.nextAttemptAt,
-      table.createdAt,
-    ),
-    index('video_job_outbox_job_created_idx').on(
-      table.videoJobId,
-      table.createdAt,
-    ),
-  ],
-);
-
-export const videoJobEvents = pgTable(
-  'video_job_events',
-  {
-    id: text('id').primaryKey(),
-    eventId: text('event_id').notNull(),
-    videoJobId: text('video_job_id')
-      .notNull()
-      .references(() => videoJobs.id, { onDelete: 'cascade' }),
-    eventType: text('event_type').notNull(),
-    attempt: integer('attempt').notNull(),
-    workerId: text('worker_id'),
-    payload: jsonb('payload').notNull(),
-    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('video_job_events_event_id_uidx').on(table.eventId),
-    index('video_job_events_job_created_idx').on(
-      table.videoJobId,
-      table.createdAt,
-    ),
-  ],
-);
-
 export const videoJobScenes = pgTable(
   'video_job_scenes',
   {
@@ -371,7 +310,7 @@ export const videoJobScenes = pgTable(
     actualAudioDurationMs: integer('actual_audio_duration_ms'),
     renderStatus: text('render_status').notNull().default('pending'),
     retryCount: integer('retry_count').notNull().default(0),
-    manimCodeObjectKey: text('manim_code_object_key'),
+    sceneDefinitionObjectKey: text('scene_definition_object_key'),
     audioObjectKey: text('audio_object_key'),
     videoObjectKey: text('video_object_key'),
     errorMessage: text('error_message'),

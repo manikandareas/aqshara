@@ -1,37 +1,38 @@
 import { Module } from '@nestjs/common';
+import { AiModule } from '../../infrastructure/ai/ai.module';
 import { VideoDeliveryModule } from '../../infrastructure/video-delivery/video-delivery.module';
 import { DocumentsModule } from '../documents/documents.module';
-import {
-  InternalVideoJobsController,
-  VideoJobsController,
-} from './video-jobs.controller';
+import { VideoCreativeService } from './remotion/video-creative.service';
+import { VideoJobsController } from './video-jobs.controller';
+import { RemotionRenderService } from './remotion/remotion-render.service';
+import { VideoGenerationRunnerService } from './remotion/video-generation-runner.service';
+import { VideoMediaProbeService } from './remotion/video-media-probe.service';
+import { VideoNarrationService } from './remotion/video-narration.service';
 import { VideoJobProcessorService } from './video-job-processor.service';
 import { VideoJobRoutingService } from './video-job-routing.service';
-import { VideoTransportService } from './video-transport.service';
-import { VideoWorkerBridgeService } from './video-worker-bridge.service';
-import { VideoJobsInternalAuthService } from './video-jobs-internal-auth.service';
 import { VideoJobsRepository } from './video-jobs.repository';
 import { VideoJobsService } from './video-jobs.service';
 
 @Module({
-  imports: [DocumentsModule, VideoDeliveryModule],
-  controllers: [VideoJobsController, InternalVideoJobsController],
+  imports: [AiModule, DocumentsModule, VideoDeliveryModule],
+  controllers: [VideoJobsController],
   providers: [
     VideoJobsRepository,
     VideoJobsService,
-    VideoJobsInternalAuthService,
     VideoJobRoutingService,
     VideoJobProcessorService,
-    VideoWorkerBridgeService,
-    VideoTransportService,
+    VideoCreativeService,
+    VideoNarrationService,
+    VideoMediaProbeService,
+    RemotionRenderService,
+    VideoGenerationRunnerService,
   ],
   exports: [
     VideoJobsService,
     VideoJobRoutingService,
     VideoJobProcessorService,
-    VideoWorkerBridgeService,
     VideoJobsRepository,
-    VideoTransportService,
+    VideoGenerationRunnerService,
   ],
 })
 export class VideoJobsModule {}
