@@ -1,12 +1,13 @@
 {
-  "name": "@repo/eslint-config",
+  "name": "@aqshara/eslint-config",
   "version": "0.0.0",
   "type": "module",
   "private": true,
   "exports": {
     "./base": "./base.js",
     "./next-js": "./next.js",
-    "./react-internal": "./react-internal.js"
+    "./react-internal": "./react-internal.js",
+    "./node": "./node.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

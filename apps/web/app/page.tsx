@@ -1,102 +1,99 @@
-import Image, { type ImageProps } from "next/image";
-import { Button } from "@repo/ui/button";
-import styles from "./page.module.css";
+import { createEmptyDocument, toPlainText } from "@aqshara/documents";
 
-type Props = Omit<ImageProps, "src"> & {
-  srcLight: string;
-  srcDark: string;
+const bootstrapDocument = {
+  ...createEmptyDocument(),
+  nodes: [
+    { type: "heading" as const, level: 1 as const, text: "Draft baru" },
+    {
+      type: "paragraph" as const,
+      text: "Fondasi monorepo Aqshara sudah siap untuk auth, document workspace, AI assist, dan export.",
+    },
+  ],
 };
 
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
-
-  return (
-    <>
-      <Image {...rest} src={srcLight} className="imgLight" />
-      <Image {...rest} src={srcDark} className="imgDark" />
-    </>
-  );
-};
+const rails = [
+  "Next.js product app di apps/web",
+  "Hono REST API + OpenAPI + Swagger di apps/api",
+  "BullMQ worker scaffold di apps/worker",
+  "Generated TanStack Query API client di packages/api-client",
+];
 
 export default function Home() {
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight="turborepo-dark.svg"
-          srcDark="turborepo-light.svg"
-          alt="Turborepo logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>apps/web/app/page.tsx</code>
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new/clone?demo-description=Learn+to+implement+a+monorepo+with+a+two+Next.js+sites+that+has+installed+three+local+packages.&demo-image=%2F%2Fimages.ctfassets.net%2Fe5382hct74si%2F4K8ZISWAzJ8X1504ca0zmC%2F0b21a1c6246add355e55816278ef54bc%2FBasic.png&demo-title=Monorepo+with+Turborepo&demo-url=https%3A%2F%2Fexamples-basic-web.vercel.sh%2F&from=templates&project-name=Monorepo+with+Turborepo&repository-name=monorepo-turborepo&repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fturborepo%2Ftree%2Fmain%2Fexamples%2Fbasic&root-directory=apps%2Fdocs&skippable-integrations=1&teamSlug=vercel&utm_source=create-turbo"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main style={{ minHeight: "100vh", padding: "2rem", background: "linear-gradient(135deg, #fff7ed 0%, #eff6ff 100%)" }}>
+      <section
+        style={{
+          display: "grid",
+          gap: "1.5rem",
+          padding: "2rem",
+          borderRadius: "1.5rem",
+          border: "1px solid rgba(15, 23, 42, 0.08)",
+          background:
+            "linear-gradient(180deg, rgba(250, 250, 249, 0.96) 0%, rgba(255, 255, 255, 1) 100%)",
+          boxShadow: "0 20px 60px rgba(15, 23, 42, 0.08)",
+        }}
+      >
+        <div style={{ display: "grid", gap: "0.75rem" }}>
+          <p
+            style={{
+              fontSize: "0.8rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "#9a3412",
+            }}
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://turborepo.dev/docs?utm_source"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
+            Operational Foundation
+          </p>
+          <h1
+            style={{
+              fontSize: "clamp(2rem, 3vw, 3.5rem)",
+              lineHeight: 1,
+              color: "#111827",
+            }}
           >
-            Read our docs
-          </a>
+            Aqshara monorepo siap dipakai sebagai writing-first platform
+          </h1>
+          <p
+            style={{
+              maxWidth: "42rem",
+              color: "#4b5563",
+              fontSize: "1rem",
+              lineHeight: 1.7,
+            }}
+          >
+            Struktur app dan package sekarang mengikuti jalur MVP: auth, document
+            workspace, structured editor, AI writing, quota, dan DOCX export.
+          </p>
         </div>
-        <Button appName="web" className={styles.secondary}>
-          Open alert
-        </Button>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com/templates?search=turborepo&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://turborepo.dev?utm_source=create-turbo"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to turborepo.dev →
-        </a>
-      </footer>
-    </div>
+        <div style={{ display: "grid", gap: "1rem" }}>
+          <div style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {rails.map((rail) => (
+              <article
+                key={rail}
+                style={{
+                  padding: "1rem",
+                  borderRadius: "1rem",
+                  background: "rgba(255,255,255,0.8)",
+                  border: "1px solid rgba(148, 163, 184, 0.25)",
+                }}
+              >
+                {rail}
+              </article>
+            ))}
+          </div>
+          <pre
+            style={{
+              padding: "1rem",
+              borderRadius: "1rem",
+              background: "#111827",
+              color: "#f9fafb",
+              overflowX: "auto",
+            }}
+          >
+            {toPlainText(bootstrapDocument)}
+          </pre>
+        </div>
+      </section>
+    </main>
   );
 }

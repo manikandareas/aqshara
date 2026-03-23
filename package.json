@@ -4,11 +4,22 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:web": "pnpm --filter @aqshara/web dev",
+    "dev:api": "pnpm --filter @aqshara/api dev",
+    "dev:worker": "pnpm --filter @aqshara/worker dev",
     "lint": "turbo run lint",
+    "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "check-types": "turbo run check-types",
+    "spec:generate": "pnpm --filter @aqshara/api spec:generate",
+    "client:generate": "pnpm --filter @aqshara/api-client generate",
+    "client:check": "pnpm --filter @aqshara/api-client check",
+    "db:generate": "pnpm --filter @aqshara/database db:generate",
+    "db:migrate": "pnpm --filter @aqshara/database db:migrate",
+    "db:push": "pnpm --filter @aqshara/database db:push"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "prettier": "^3.7.4",
     "turbo": "^2.8.20",
     "typescript": "5.9.2"

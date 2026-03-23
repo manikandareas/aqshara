@@ -1,0 +1,9 @@
+{
+  "extends": "@aqshara/typescript-config/node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "orval.config.ts"],
+  "exclude": ["dist", "node_modules"]
+}

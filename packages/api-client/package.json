@@ -1,0 +1,30 @@
+{
+  "name": "@aqshara/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "check-types": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types",
+    "generate": "openapi-typescript ../../apps/api/openapi/openapi.json -o ./src/generated/types.ts",
+    "check": "pnpm generate && git diff --exit-code -- src/generated/types.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.5",
+    "openapi-fetch": "^0.15.0",
+    "openapi-react-query": "^0.5.1"
+  },
+  "devDependencies": {
+    "@aqshara/config": "workspace:*",
+    "@aqshara/eslint-config": "workspace:*",
+    "@aqshara/typescript-config": "workspace:*",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "openapi-typescript": "^7.10.1",
+    "typescript": "5.9.2"
+  }
+}

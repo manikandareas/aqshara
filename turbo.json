@@ -1,17 +1,47 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalDependencies": [".env*", "**/.env*"],
+  "globalEnv": [
+    "API_BASE_URL",
+    "NEXT_PUBLIC_API_BASE_URL",
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "DATABASE_URL",
+    "API_PORT"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**",
+        "apps/api/openapi/openapi.json",
+        "src/generated/**"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]
     },
     "check-types": {
       "dependsOn": ["^check-types"]
+    },
+    "test": {
+      "dependsOn": ["^test"],
+      "outputs": []
+    },
+    "spec:generate": {
+      "dependsOn": ["^build"],
+      "outputs": ["apps/api/openapi/openapi.json"]
+    },
+    "generate": {
+      "dependsOn": ["^generate", "^spec:generate"],
+      "outputs": ["src/generated/**"]
+    },
+    "check": {
+      "dependsOn": ["^check"]
     },
     "dev": {
       "cache": false,

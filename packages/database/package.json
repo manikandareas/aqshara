@@ -1,0 +1,29 @@
+{
+  "name": "@aqshara/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "check-types": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.6",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@aqshara/eslint-config": "workspace:*",
+    "@aqshara/typescript-config": "workspace:*",
+    "@types/node": "^24.10.1",
+    "drizzle-kit": "^0.31.7",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2"
+  }
+}
