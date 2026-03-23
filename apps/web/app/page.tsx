@@ -1,99 +1,78 @@
-import { createEmptyDocument, toPlainText } from "@aqshara/documents";
+import Link from "next/link";
+import { SignInButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
-const bootstrapDocument = {
-  ...createEmptyDocument(),
-  nodes: [
-    { type: "heading" as const, level: 1 as const, text: "Draft baru" },
-    {
-      type: "paragraph" as const,
-      text: "Fondasi monorepo Aqshara sudah siap untuk auth, document workspace, AI assist, dan export.",
-    },
-  ],
-};
+export default async function Home() {
+  const session = await auth();
 
-const rails = [
-  "Next.js product app di apps/web",
-  "Hono REST API + OpenAPI + Swagger di apps/api",
-  "BullMQ worker scaffold di apps/worker",
-  "Generated TanStack Query API client di packages/api-client",
-];
+  if (session.userId) {
+    redirect("/app");
+  }
 
-export default function Home() {
   return (
-    <main style={{ minHeight: "100vh", padding: "2rem", background: "linear-gradient(135deg, #fff7ed 0%, #eff6ff 100%)" }}>
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: "2rem",
+        background:
+          "radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), transparent 35%), linear-gradient(135deg, #fff7ed 0%, #e0f2fe 100%)",
+      }}
+    >
       <section
         style={{
+          width: "min(100%, 980px)",
           display: "grid",
           gap: "1.5rem",
           padding: "2rem",
-          borderRadius: "1.5rem",
+          borderRadius: "1.75rem",
           border: "1px solid rgba(15, 23, 42, 0.08)",
-          background:
-            "linear-gradient(180deg, rgba(250, 250, 249, 0.96) 0%, rgba(255, 255, 255, 1) 100%)",
-          boxShadow: "0 20px 60px rgba(15, 23, 42, 0.08)",
+          background: "rgba(255, 255, 255, 0.92)",
+          boxShadow: "0 30px 80px rgba(15, 23, 42, 0.12)",
         }}
       >
-        <div style={{ display: "grid", gap: "0.75rem" }}>
-          <p
-            style={{
-              fontSize: "0.8rem",
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-              color: "#9a3412",
-            }}
-          >
-            Operational Foundation
-          </p>
-          <h1
-            style={{
-              fontSize: "clamp(2rem, 3vw, 3.5rem)",
-              lineHeight: 1,
-              color: "#111827",
-            }}
-          >
-            Aqshara monorepo siap dipakai sebagai writing-first platform
-          </h1>
-          <p
-            style={{
-              maxWidth: "42rem",
-              color: "#4b5563",
-              fontSize: "1rem",
-              lineHeight: 1.7,
-            }}
-          >
-            Struktur app dan package sekarang mengikuti jalur MVP: auth, document
-            workspace, structured editor, AI writing, quota, dan DOCX export.
-          </p>
-        </div>
-        <div style={{ display: "grid", gap: "1rem" }}>
-          <div style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            {rails.map((rail) => (
-              <article
-                key={rail}
-                style={{
-                  padding: "1rem",
-                  borderRadius: "1rem",
-                  background: "rgba(255,255,255,0.8)",
-                  border: "1px solid rgba(148, 163, 184, 0.25)",
-                }}
-              >
-                {rail}
-              </article>
-            ))}
-          </div>
-          <pre
-            style={{
-              padding: "1rem",
-              borderRadius: "1rem",
-              background: "#111827",
-              color: "#f9fafb",
-              overflowX: "auto",
-            }}
-          >
-            {toPlainText(bootstrapDocument)}
-          </pre>
+        <p style={{ letterSpacing: "0.16em", textTransform: "uppercase", color: "#b45309", fontSize: "0.85rem" }}>
+          Writing-first MVP
+        </p>
+        <h1 style={{ fontSize: "clamp(2.25rem, 6vw, 4.5rem)", lineHeight: 1, color: "#0f172a" }}>
+          Draft academic writing without losing structure.
+        </h1>
+        <p style={{ maxWidth: "46rem", color: "#475569", fontSize: "1.05rem", lineHeight: 1.8 }}>
+          Aqshara gives you a lightweight workspace for documents, a structured block editor, and a save path that survives refreshes. Sprint 1 focuses on the core path: sign in, create a draft, write, and come back to it.
+        </p>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <SignInButton mode="modal">
+            <button style={primaryButtonStyle} type="button">
+              Continue with Clerk
+            </button>
+          </SignInButton>
+          <Link href="/sign-up" style={secondaryButtonStyle}>
+            Create account
+          </Link>
         </div>
       </section>
     </main>
   );
 }
+
+const primaryButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "999px",
+  padding: "0.9rem 1.25rem",
+  background: "#0f172a",
+  color: "#fff",
+  fontWeight: 600,
+  border: "none",
+  cursor: "pointer",
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  background: "#fff",
+  color: "#0f172a",
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+};

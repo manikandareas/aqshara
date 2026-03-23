@@ -4,18 +4,28 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: varchar("email", { length: 255 }).notNull(),
-  name: varchar("name", { length: 255 }),
-  avatarUrl: text("avatar_url"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clerkUserId: varchar("clerk_user_id", { length: 255 }).notNull(),
+    email: varchar("email", { length: 255 }).notNull(),
+    name: varchar("name", { length: 255 }),
+    avatarUrl: text("avatar_url"),
+    planCode: varchar("plan_code", { length: 32 }).notNull().default("free"),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    clerkUserIdIdx: uniqueIndex("users_clerk_user_id_idx").on(table.clerkUserId),
+  }),
+);
 
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -29,8 +39,10 @@ export const documents = pgTable("documents", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
+  type: varchar("type", { length: 32 }).notNull().default("general_paper"),
   contentJson: jsonb("content_json").notNull(),
   plainText: text("plain_text"),
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

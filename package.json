@@ -16,7 +16,8 @@
     "client:check": "pnpm --filter @aqshara/api-client check",
     "db:generate": "pnpm --filter @aqshara/database db:generate",
     "db:migrate": "pnpm --filter @aqshara/database db:migrate",
-    "db:push": "pnpm --filter @aqshara/database db:push"
+    "db:push": "pnpm --filter @aqshara/database db:push",
+    "db:studio": "pnpm --filter @aqshara/database db:studio"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

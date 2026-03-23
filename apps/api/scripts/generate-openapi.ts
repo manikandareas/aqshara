@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import app from "../src/app.js";
+import app from "../src/app-instance.js";
 
 const outputDirectory = join(process.cwd(), "openapi");
 const outputFile = join(outputDirectory, "openapi.json");

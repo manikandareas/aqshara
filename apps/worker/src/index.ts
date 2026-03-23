@@ -1,7 +1,10 @@
+import { loadWorkspaceEnv } from "@aqshara/config/load-env";
 import { Worker } from "bullmq";
 import { getRedisConnection } from "@aqshara/config";
 import { createLogger } from "@aqshara/observability";
 import { jobHandlers, queueNames } from "@aqshara/queue";
+
+loadWorkspaceEnv();
 
 const logger = createLogger("worker");
 const connection = getRedisConnection();

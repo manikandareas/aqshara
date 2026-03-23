@@ -45,6 +45,749 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks/clerk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Handle Clerk user sync webhooks */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Webhook accepted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            ok: true;
+                        };
+                    };
+                };
+                /** @description Invalid webhook */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current provisioned app session */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current app session */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            user: {
+                                id: string;
+                                clerkUserId: string;
+                                /** Format: email */
+                                email: string;
+                                name: string | null;
+                                avatarUrl: string | null;
+                                /** @enum {string} */
+                                planCode: "free";
+                            };
+                            workspace: {
+                                id: string;
+                                userId: string;
+                                name: string;
+                            };
+                            plan: {
+                                /** @enum {string} */
+                                code: "free";
+                                /** @enum {string} */
+                                label: "Free";
+                            };
+                            usage: {
+                                aiActionsRemaining: number;
+                                exportsRemaining: number;
+                                sourceUploadsRemaining: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Account deleted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Account provisioning pending */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List documents for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "active" | "archived";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Document list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            documents: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a new document */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        /** @enum {string} */
+                        type: "general_paper" | "proposal" | "skripsi";
+                    };
+                };
+            };
+            responses: {
+                /** @description Created document */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch a document by id */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Document detail */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a document */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Update document metadata */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        title?: string;
+                        /** @enum {string} */
+                        type?: "general_paper" | "proposal" | "skripsi";
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated document */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save document content */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        contentJson: {
+                            /** @enum {number} */
+                            version: 1;
+                            nodes: ({
+                                /** @enum {string} */
+                                type: "heading";
+                                level: 1 | 2 | 3;
+                                text: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "paragraph";
+                                text: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "bullet_list";
+                                items: string[];
+                            })[];
+                        };
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved document */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a document */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Archived document */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {

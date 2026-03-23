@@ -13,6 +13,113 @@ Dokumen ini berasumsi bahwa launch awal difokuskan pada **writing-first MVP**, s
 
 ---
 
+## 1A. Progress Implementasi Saat Ini
+
+Status dokumen ini per update terbaru:
+
+- Fondasi monorepo writing-first sudah selesai diimplementasikan.
+- Sprint 1 core path sekarang sudah tersedia end-to-end untuk happy path:
+  - Clerk auth di `apps/web`
+  - protected Hono API di `apps/api`
+  - Clerk webhook provisioning untuk user internal + workspace default
+  - document dashboard
+  - document CRUD dasar
+  - structured editor v1
+  - debounce autosave + refresh recovery path
+- Struktur aktif repo sekarang adalah:
+  - `apps/web` untuk product frontend Next.js
+  - `apps/api` untuk Hono REST API
+  - `apps/worker` untuk BullMQ worker/background jobs
+- `apps/docs` sudah dihapus dari scope aktif.
+- `packages/ui` sudah dihapus karena tidak dipakai; UI sementara berada langsung di `apps/web`.
+- Package shared yang sudah tersedia:
+  - `packages/api-client`
+  - `packages/api-spec`
+  - `packages/auth`
+  - `packages/config`
+  - `packages/database`
+  - `packages/documents`
+  - `packages/observability`
+  - `packages/queue`
+  - `packages/storage`
+  - `packages/eslint-config`
+  - `packages/typescript-config`
+
+### Yang sudah selesai
+
+1. Hono API scaffold tersedia dan dapat dijalankan.
+2. Swagger/OpenAPI contract tersedia dari API.
+3. OpenAPI spec dapat digenerate ke `apps/api/openapi/openapi.json`.
+4. API client untuk web dapat digenerate dari OpenAPI spec.
+5. Worker scaffold untuk background jobs sudah tersedia.
+6. Canonical document model awal sudah tersedia di package shared.
+7. Schema database sudah diperluas untuk mendukung:
+   - `users.clerk_user_id`
+   - `users.plan_code`
+   - `documents.type`
+   - `documents.archived_at`
+8. Clerk provider + route protection di web sudah tersedia.
+9. Endpoint session `/v1/me` sudah tersedia sebagai read path untuk user yang sudah terprovision.
+10. Endpoint public webhook `POST /webhooks/clerk` sudah tersedia untuk:
+    - `user.created`
+    - `user.updated`
+    - `user.deleted`
+11. Provisioning user internal + workspace default sekarang berjalan via webhook Clerk, bukan lagi bootstrap saat request authenticated pertama.
+12. Endpoint dokumen berikut sudah tersedia:
+    - list documents
+    - create document
+    - get document by id
+    - rename/update metadata
+    - save content
+    - archive document
+    - delete document
+13. Dashboard dokumen di web sudah tersedia dengan:
+    - create document
+    - active documents
+    - archived documents
+    - empty state dasar
+    - provisioning pending state jika webhook belum selesai
+    - deleted account state jika user lokal sudah dinonaktifkan
+14. Structured editor v1 sudah tersedia dengan block:
+    - heading
+    - paragraph
+    - bullet list
+    - outline sidebar
+15. Autosave debounce sudah tersedia dan menyimpan `content_json` + `plain_text` melalui API.
+16. Root scripts dan Turbo tasks untuk `lint`, `check-types`, `test`, `spec:generate`, `client:generate`, `db:generate`, `db:migrate`, `db:push`, `db:studio`, dan `build` sudah tersedia.
+17. Schema database sekarang sudah mendukung soft delete user melalui `users.deleted_at`.
+
+### Verifikasi yang sudah lolos
+
+- `pnpm lint`
+- `pnpm check-types`
+- `pnpm test`
+- `pnpm spec:generate`
+- `pnpm client:generate`
+- `pnpm db:generate`
+- `pnpm build`
+
+### Yang masih belum selesai untuk scope launch
+
+1. Verifikasi delivery webhook Clerk untuk environment production masih bergantung pada setup dashboard, tunnel/domain, dan secret nyata.
+2. Existing Clerk users yang sudah ada sebelum webhook diaktifkan belum memiliki mekanisme backfill; provisioning saat ini mengandalkan event baru/replay webhook.
+3. Recent documents masih belum dipisah sebagai surface UX tersendiri; saat ini urutan list memakai `updated_at`.
+4. Basic inline formatting dan keyboard shortcuts editor belum tersedia.
+5. Snapshot versioning periodik belum tersedia; save path saat ini masih berupa overwrite debounce sederhana.
+6. Plan/usage summary masih berupa foundation stub untuk Free plan, belum enforcement penuh.
+
+### Implikasi ke execution plan
+
+- Sprint 1 tidak lagi berstatus "mulai implementasi"; sebagian besar jalur inti sudah jalan.
+- Fokus berikutnya bergeser ke:
+  - menutup gap Sprint 1 yang masih tersisa,
+  - hardening auth provisioning dan operational webhook flow,
+  - masuk ke onboarding/template/outline,
+  - AI writing assistant,
+  - usage/quota enforcement.
+
+---
+
 ## 2. Ruang Lingkup Launch
 
 ### In scope untuk Launch MVP
@@ -87,22 +194,26 @@ User bisa mulai memakai produk dengan friction minimal.
 
 - Google sign-in
 - Email OTP fallback
-- Bootstrap profile internal
-- Workspace default creation
+- Sync profile internal via Clerk webhook
+- Workspace default creation via Clerk webhook
 - Fetch current plan dan usage summary ringan
 
 ### Acceptance criteria
 
 - User baru bisa login dengan Google dan langsung masuk ke app tanpa error.
 - Jika Google gagal/tidak dipakai, user bisa login melalui email OTP.
-- Setelah login pertama, sistem otomatis membuat workspace default.
+- Setelah event `user.created` atau `user.updated` diterima dari Clerk, sistem otomatis membuat atau meng-update user internal.
+- Setelah provisioning user berhasil, sistem otomatis membuat workspace default jika belum ada.
 - User profile internal tersimpan dengan email, nama, avatar jika tersedia.
 - Sistem dapat menampilkan plan user dan batas utama yang relevan.
 - Session valid dapat dipakai untuk mengakses endpoint dokumen tanpa login ulang di setiap request.
+- Jika user sudah login ke Clerk tetapi provisioning lokal belum selesai, app menampilkan state provisioning pending yang jelas.
+- Jika user menerima event `user.deleted`, akses ke workspace lokal ditolak tanpa menghapus dokumen secara fisik.
 
 ### Dependencies
 
 - Clerk setup
+- Clerk webhook setup
 - DB schema `users`, `workspaces`
 - Auth middleware backend
 
@@ -455,6 +566,12 @@ Menetapkan fondasi produk: auth, workspace, document CRUD, dan editor dasar.
 
 ### Deliverables
 
+- Monorepo foundation:
+  - `apps/web`
+  - `apps/api`
+  - `apps/worker`
+  - shared packages inti
+- OpenAPI/Swagger contract + generated API client untuk web
 - Login Google + email OTP fallback
 - Workspace default
 - Dashboard dokumen
@@ -462,6 +579,24 @@ Menetapkan fondasi produk: auth, workspace, document CRUD, dan editor dasar.
 - Editor basic dengan paragraph + heading + list
 - Autosave awal
 - Recent documents
+
+### Status implementasi sprint
+
+- Sudah selesai di repo:
+  - Clerk integration dan protected routes di web
+  - session read endpoint + Clerk webhook provisioning untuk user/workspace
+  - document dashboard
+  - create/open/rename/archive/delete dokumen
+  - editor basic dengan paragraph + heading + list
+  - outline sidebar
+  - autosave awal
+- Masih tersisa / perlu hardening:
+  - validasi langsung Google sign-in + email OTP fallback pada env Clerk nyata
+  - validasi delivery webhook Clerk pada domain/tunnel production-like
+  - replay/backfill strategy bila existing user Clerk perlu diadopsi ke flow baru
+  - surface "recent documents" terpisah bila tetap dianggap launch-critical
+  - keyboard shortcuts editor
+  - save race-condition hardening lebih lanjut bila ditemukan saat QA
 
 ### Exit criteria sprint
 
@@ -473,6 +608,7 @@ Menetapkan fondasi produk: auth, workspace, document CRUD, dan editor dasar.
 - Auth integration molor
 - Pemilihan editor framework belum final
 - Autosave write pattern terlalu berat
+- Fondasi API sudah ada, tetapi boundary service masih perlu dijaga agar tidak bocor ke web secara langsung
 
 ### QA focus
 

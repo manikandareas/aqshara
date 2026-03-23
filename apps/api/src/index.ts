@@ -1,7 +1,10 @@
+import { loadWorkspaceEnv } from "@aqshara/config/load-env";
 import { serve } from "@hono/node-server";
-import app from "./app.js";
+import app from "./app-instance.js";
 
-const port = Number(process.env.API_PORT ?? 3002);
+loadWorkspaceEnv();
+
+const port = Number(process.env.API_PORT ?? 9000);
 
 serve(
   {

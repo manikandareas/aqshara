@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint . --max-warnings 0",
@@ -15,10 +15,16 @@
   "dependencies": {
     "@aqshara/api-spec": "workspace:*",
     "@aqshara/config": "workspace:*",
+    "@aqshara/database": "workspace:^",
+    "@aqshara/documents": "workspace:^",
     "@aqshara/observability": "workspace:*",
+    "@clerk/backend": "^3.2.2",
+    "@hono/clerk-auth": "^3.1.0",
     "@hono/node-server": "^1.19.6",
     "@hono/swagger-ui": "^0.5.2",
     "@hono/zod-openapi": "^1.1.5",
+    "@hono/zod-validator": "^0.7.6",
+    "drizzle-orm": "^0.44.6",
     "hono": "^4.10.4"
   },
   "devDependencies": {
@@ -26,6 +32,7 @@
     "@aqshara/typescript-config": "workspace:*",
     "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
+    "tsx": "^4.21.0",
     "typescript": "5.9.2"
   }
 }

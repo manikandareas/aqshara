@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { ClerkProvider } from "@clerk/nextjs";
 import { QueryProvider } from "../components/query-provider";
 import "./globals.css";
 
@@ -25,7 +26,9 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <QueryProvider>{children}</QueryProvider>
+        <ClerkProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </ClerkProvider>
       </body>
     </html>
   );
