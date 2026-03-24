@@ -351,6 +351,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/documents/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recent documents for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Recent document list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            documents: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: {
+                                    /** @enum {number} */
+                                    version: 1;
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        level: 1 | 2 | 3;
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        text: string;
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet_list";
+                                        items: string[];
+                                    })[];
+                                };
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/documents/{documentId}": {
         parameters: {
             query?: never;
@@ -616,6 +697,8 @@ export interface paths {
                                 items: string[];
                             })[];
                         };
+                        /** Format: date-time */
+                        baseUpdatedAt: string;
                     };
                 };
             };
@@ -674,6 +757,19 @@ export interface paths {
                 };
                 /** @description Not found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Stale document save */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
