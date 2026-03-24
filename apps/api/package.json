@@ -9,8 +9,9 @@
     "start": "node dist/index.js",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist/src/app.test.js",
-    "spec:generate": "tsc -p tsconfig.json && node dist/scripts/generate-openapi.js"
+    "test": "tsc -p tsconfig.json && node --test dist/src/*.test.js",
+    "spec:generate": "tsc -p tsconfig.json && node dist/scripts/generate-openapi.js",
+    "clerk:backfill": "tsc -p tsconfig.json && node dist/scripts/backfill-clerk-users.js"
   },
   "dependencies": {
     "@aqshara/api-spec": "workspace:*",
