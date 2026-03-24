@@ -1,5 +1,6 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
+import { UserButton, Show } from "@clerk/tanstack-react-start"
 
 export const Route = createFileRoute("/app")({
   component: AppPage,
@@ -13,14 +14,22 @@ function AppPage() {
         {/* Top Section */}
         <div className="flex flex-col gap-1 p-3">
           {/* User Profile Selector */}
-          <button className="flex items-center justify-between w-full px-2 py-2 mb-4 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-lg transition-colors group">
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div className="size-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold shrink-0 border border-primary/30">
-                <img src="/logo.svg" alt="Avatar" className="w-4 h-4 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                <span className="absolute">VA</span>
+          <div className="flex items-center justify-between w-full px-2 py-2 mb-4 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-lg transition-colors group">
+            <Show when="signed-in">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <UserButton />
+                <span className="text-sm font-medium truncate opacity-90 group-hover:opacity-100">My Account</span>
               </div>
-              <span className="text-sm font-medium truncate opacity-90 group-hover:opacity-100">Vito Andareas M...</span>
-            </div>
+            </Show>
+            <Show when="signed-out">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="size-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold shrink-0 border border-primary/30">
+                  <img src="/logo.svg" alt="Avatar" className="w-4 h-4 rounded-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  <span className="absolute">?</span>
+                </div>
+                <span className="text-sm font-medium truncate opacity-90 group-hover:opacity-100">Sign In</span>
+              </div>
+            </Show>
             <div className="flex flex-col items-center justify-center opacity-50 group-hover:opacity-100 shrink-0">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-[-4px]">
                 <polyline points="18 15 12 9 6 15" />
@@ -29,7 +38,7 @@ function AppPage() {
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </div>
-          </button>
+          </div>
 
           {/* Navigation Items */}
           <div className="space-y-[2px]">

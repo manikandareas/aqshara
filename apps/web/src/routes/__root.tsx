@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
+import { ClerkProvider } from '@clerk/tanstack-react-start'
 
 import appCss from "../styles.css?url"
 
@@ -34,8 +35,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
-        {children}
+      <body className="dark">
+        <ClerkProvider>
+          {children}
+        </ClerkProvider>
         <TanStackDevtools
           config={{
             position: "bottom-right",
