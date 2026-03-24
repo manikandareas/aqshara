@@ -25,6 +25,7 @@
     "@hono/swagger-ui": "^0.5.2",
     "@hono/zod-openapi": "^1.1.5",
     "@hono/zod-validator": "^0.7.6",
+    "@scalar/hono-api-reference": "^0.10.4",
     "drizzle-orm": "^0.44.6",
     "hono": "^4.10.4"
   },

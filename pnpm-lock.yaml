@@ -56,6 +56,9 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.7.6
         version: 0.7.6(hono@4.12.8)(zod@4.3.6)
+      '@scalar/hono-api-reference':
+        specifier: ^0.10.4
+        version: 0.10.4(hono@4.12.8)
       drizzle-orm:
         specifier: ^0.44.6
         version: 0.44.7(@types/pg@8.20.0)(pg@8.20.0)
@@ -125,7 +128,7 @@ importers:
         version: 2.1.1
       nitro:
         specifier: latest
-        version: 3.0.260311-beta(chokidar@3.6.0)(dotenv@16.0.3)(drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.20.0))(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.7)(rollup@4.60.0)(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 3.0.260311-beta(chokidar@3.6.0)(dotenv@17.3.1)(drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.20.0))(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.7)(rollup@4.60.0)(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
       react:
         specifier: ^19.2.4
         version: 19.2.4
@@ -1732,6 +1735,24 @@ packages:
     resolution: {integrity: sha512-PrsWNQ8BuE00O3Xsx3ALh2Df8fAj9+cvvX9AIA6o4KpATR98c9mud4XtDWVvsEuyia5U4tVSTKygawyJkjm60w==}
     cpu: [x64]
     os: [win32]
+
+  '@scalar/core@0.4.4':
+    resolution: {integrity: sha512-eXIG0opyQn45FzpTp0dAWFP1Vjcx+helgUAsa0uN36tyUR7DSmz2kRwHqqedzvPWryeRCKPz7/vwzKpETZp5lg==}
+    engines: {node: '>=22'}
+
+  '@scalar/helpers@0.4.2':
+    resolution: {integrity: sha512-IrgrGVSahCfYDNWITazz4Q1BOndp5eEzlimRkfxiYn++KqeWyLfALyym1omqcdKGYtiSx1KIbKaUJL9vkjaN7w==}
+    engines: {node: '>=22'}
+
+  '@scalar/hono-api-reference@0.10.4':
+    resolution: {integrity: sha512-mRH3GAx5sfXB0e9bHhjaRORzX/Hct1Gmj6s0wVAEMVpYm31dsR4om4Qu5zLAVbYroc0QWpo2h19+vu9pg/lG2w==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      hono: ^4.12.5
+
+  '@scalar/types@0.7.4':
+    resolution: {integrity: sha512-1o9uf42lZ9YD0XP/HMWrwXN0unx6vFTTgtduA1F28Yloea9Pfv9N2R/t0wO91iSIzw4+NubEFolunbdb2QcgHA==}
+    engines: {node: '>=22'}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -4117,6 +4138,11 @@ packages:
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  nanoid@5.1.7:
+    resolution: {integrity: sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ==}
+    engines: {node: ^18 || >=20}
     hasBin: true
 
   napi-postinstall@0.3.4:
@@ -6508,6 +6534,24 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.60.0':
     optional: true
+
+  '@scalar/core@0.4.4':
+    dependencies:
+      '@scalar/types': 0.7.4
+
+  '@scalar/helpers@0.4.2': {}
+
+  '@scalar/hono-api-reference@0.10.4(hono@4.12.8)':
+    dependencies:
+      '@scalar/core': 0.4.4
+      hono: 4.12.8
+
+  '@scalar/types@0.7.4':
+    dependencies:
+      '@scalar/helpers': 0.4.2
+      nanoid: 5.1.7
+      type-fest: 5.5.0
+      zod: 4.3.6
 
   '@sec-ant/readable-stream@0.4.1': {}
 
@@ -9092,6 +9136,8 @@ snapshots:
 
   nanoid@3.3.11: {}
 
+  nanoid@5.1.7: {}
+
   napi-postinstall@0.3.4: {}
 
   natural-compare@1.4.0: {}
@@ -9100,7 +9146,7 @@ snapshots:
 
   nf3@0.3.13: {}
 
-  nitro@3.0.260311-beta(chokidar@3.6.0)(dotenv@16.0.3)(drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.20.0))(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.7)(rollup@4.60.0)(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
+  nitro@3.0.260311-beta(chokidar@3.6.0)(dotenv@17.3.1)(drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.20.0))(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.7)(rollup@4.60.0)(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.4(srvx@0.11.13)
@@ -9117,7 +9163,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unstorage: 2.0.0-alpha.7(chokidar@3.6.0)(db0@0.3.4(drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.20.0)))(ioredis@5.9.3)(lru-cache@11.2.7)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
-      dotenv: 16.0.3
+      dotenv: 17.3.1
       jiti: 2.6.1
       rollup: 4.60.0
       vite: 7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)

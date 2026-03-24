@@ -55,6 +55,16 @@ describe("api contract", () => {
     assert.equal(typeof payload.openapi, "string");
     assert.equal(payload.info.title, "Aqshara API");
   });
+
+  it("serves a Scalar API reference UI", async () => {
+    const app = createApp(createMemoryAppContext());
+    const response = await app.request("http://localhost/scalar");
+    const payload = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /text\/html/i);
+    assert.match(payload, /openapi\.json/i);
+  });
 });
 
 describe("clerk webhook provisioning", () => {

@@ -1,5 +1,6 @@
 import { toPlainText } from "@aqshara/documents";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
+import { Scalar } from "@scalar/hono-api-reference";
 import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { apiInfo } from "@aqshara/api-spec";
@@ -901,6 +902,13 @@ export function createApp(context: AppContext) {
   app.get(
     "/swagger",
     swaggerUI({
+      url: "/openapi.json",
+    }),
+  );
+
+  app.get(
+    "/scalar",
+    Scalar({
       url: "/openapi.json",
     }),
   );
