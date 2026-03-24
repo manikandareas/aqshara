@@ -1,0 +1,77 @@
+
+> aqshara-app@ check-types /Users/vitoandareasmanik/Development/project/aqshara-app
+> turbo run check-types
+
+• turbo 2.8.20
+
+   • Packages in scope: @aqshara/api, @aqshara/api-client, @aqshara/api-spec, @aqshara/auth, @aqshara/config, @aqshara/database, @aqshara/documents, @aqshara/eslint-config, @aqshara/observability, @aqshara/queue, @aqshara/storage, @aqshara/typescript-config, @aqshara/web, @aqshara/worker
+   • Running check-types in 14 packages
+   • Remote caching disabled
+
+@aqshara/config:check-types: cache hit, replaying logs 3dbfa3307b5010a9
+@aqshara/documents:check-types: cache hit, replaying logs 955771eb2b0d5801
+@aqshara/observability:check-types: cache hit, replaying logs 26a647a8f129bef7
+@aqshara/auth:check-types: cache hit, replaying logs a8bd64bd9a42c705
+@aqshara/config:check-types: 
+@aqshara/queue:check-types: cache hit, replaying logs dceaf2d4590e451c
+@aqshara/config:check-types: > @aqshara/config@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/config
+@aqshara/config:check-types: > tsc --noEmit
+@aqshara/config:check-types: 
+@aqshara/storage:check-types: cache hit, replaying logs 69f5641466b0a011
+@aqshara/auth:check-types: 
+@aqshara/auth:check-types: > @aqshara/auth@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/auth
+@aqshara/auth:check-types: > tsc --noEmit
+@aqshara/auth:check-types: 
+@aqshara/api-spec:check-types: cache hit, replaying logs 9315d39493837556
+@aqshara/storage:check-types: 
+@aqshara/storage:check-types: > @aqshara/storage@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/storage
+@aqshara/storage:check-types: > tsc --noEmit
+@aqshara/documents:check-types: 
+@aqshara/documents:check-types: > @aqshara/documents@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/documents
+@aqshara/documents:check-types: > tsc --noEmit
+@aqshara/api-spec:check-types: 
+@aqshara/observability:check-types: 
+@aqshara/observability:check-types: > @aqshara/observability@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/observability
+@aqshara/observability:check-types: > tsc --noEmit
+@aqshara/api-spec:check-types: > @aqshara/api-spec@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-spec
+@aqshara/storage:check-types: 
+@aqshara/queue:check-types: 
+@aqshara/queue:check-types: > @aqshara/queue@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/queue
+@aqshara/queue:check-types: > tsc --noEmit
+@aqshara/queue:check-types: 
+@aqshara/documents:check-types: 
+@aqshara/observability:check-types: 
+@aqshara/api-spec:check-types: > tsc --noEmit
+@aqshara/api-spec:check-types: 
+@aqshara/api-client:check-types: cache miss, executing d4ad198718f496c0
+@aqshara/database:check-types: cache hit, replaying logs 7b07e0e28434766e
+@aqshara/database:check-types: 
+@aqshara/database:check-types: > @aqshara/database@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/database
+@aqshara/database:check-types: > tsc --noEmit
+@aqshara/database:check-types: 
+@aqshara/api:check-types: cache miss, executing 1665e4dd1ba79fc1
+@aqshara/worker:check-types: cache hit, replaying logs a55d416d1ca77e67
+@aqshara/worker:check-types: 
+@aqshara/worker:check-types: > @aqshara/worker@0.1.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/apps/worker
+@aqshara/worker:check-types: > tsc --noEmit
+@aqshara/worker:check-types: 
+@aqshara/api-client:check-types: 
+@aqshara/api-client:check-types: > @aqshara/api-client@0.0.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-client
+@aqshara/api-client:check-types: > tsc --noEmit
+@aqshara/api-client:check-types: 
+@aqshara/api:check-types: 
+@aqshara/api:check-types: > @aqshara/api@0.1.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+@aqshara/api:check-types: > tsc --noEmit
+@aqshara/api:check-types: 
+@aqshara/web:check-types: cache miss, executing eb7535797f0bb69d
+@aqshara/web:check-types: 
+@aqshara/web:check-types: > @aqshara/web@0.1.0 check-types /Users/vitoandareasmanik/Development/project/aqshara-app/apps/web
+@aqshara/web:check-types: > next typegen && tsc --noEmit
+@aqshara/web:check-types: 
+@aqshara/web:check-types: Generating route types...
+@aqshara/web:check-types: ✓ Types generated successfully
+
+ Tasks:    12 successful, 12 total
+Cached:    9 cached, 12 total
+  Time:    2.695s 
+

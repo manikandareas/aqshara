@@ -1,0 +1,262 @@
+
+> aqshara-app@ test /Users/vitoandareasmanik/Development/project/aqshara-app
+> turbo run test
+
+• turbo 2.8.20
+
+   • Packages in scope: @aqshara/api, @aqshara/api-client, @aqshara/api-spec, @aqshara/auth, @aqshara/config, @aqshara/database, @aqshara/documents, @aqshara/eslint-config, @aqshara/observability, @aqshara/queue, @aqshara/storage, @aqshara/typescript-config, @aqshara/web, @aqshara/worker
+   • Running test in 14 packages
+   • Remote caching disabled
+
+@aqshara/auth:test: cache miss, executing 44ab1f6823380f3d
+@aqshara/observability:test: cache miss, executing 95f62d081812d222
+@aqshara/storage:test: cache miss, executing d9c4fc4947ab0aaa
+@aqshara/config:test: cache miss, executing da2bf36ccbed7a1e
+@aqshara/queue:test: cache miss, executing c387051710840143
+@aqshara/documents:test: cache miss, executing 66f1552c0f44a0ba
+@aqshara/api-spec:test: cache miss, executing 3e53c59cc84440a8
+@aqshara/auth:test: 
+@aqshara/auth:test: > @aqshara/auth@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/auth
+@aqshara/auth:test: > node --test --experimental-strip-types
+@aqshara/auth:test: 
+@aqshara/api-spec:test: 
+@aqshara/api-spec:test: > @aqshara/api-spec@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-spec
+@aqshara/api-spec:test: > node --test --experimental-strip-types
+@aqshara/api-spec:test: 
+@aqshara/observability:test: 
+@aqshara/observability:test: > @aqshara/observability@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/observability
+@aqshara/observability:test: > node --test --experimental-strip-types
+@aqshara/observability:test: 
+@aqshara/config:test: 
+@aqshara/config:test: > @aqshara/config@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/config
+@aqshara/config:test: > node --test --experimental-strip-types
+@aqshara/config:test: 
+@aqshara/storage:test: 
+@aqshara/storage:test: > @aqshara/storage@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/storage
+@aqshara/storage:test: > node --test --experimental-strip-types
+@aqshara/storage:test: 
+@aqshara/documents:test: 
+@aqshara/documents:test: > @aqshara/documents@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/documents
+@aqshara/documents:test: > node --test --experimental-strip-types
+@aqshara/documents:test: 
+@aqshara/queue:test: 
+@aqshara/queue:test: > @aqshara/queue@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/queue
+@aqshara/queue:test: > node --test --experimental-strip-types
+@aqshara/queue:test: 
+@aqshara/auth:test: ℹ tests 0
+@aqshara/auth:test: ℹ suites 0
+@aqshara/auth:test: ℹ pass 0
+@aqshara/auth:test: ℹ fail 0
+@aqshara/auth:test: ℹ cancelled 0
+@aqshara/auth:test: ℹ skipped 0
+@aqshara/auth:test: ℹ todo 0
+@aqshara/auth:test: ℹ duration_ms 10.194334
+@aqshara/api-spec:test: ℹ tests 0
+@aqshara/api-spec:test: ℹ suites 0
+@aqshara/api-spec:test: ℹ pass 0
+@aqshara/api-spec:test: ℹ fail 0
+@aqshara/api-spec:test: ℹ cancelled 0
+@aqshara/api-spec:test: ℹ skipped 0
+@aqshara/api-spec:test: ℹ todo 0
+@aqshara/api-spec:test: ℹ duration_ms 7.992125
+@aqshara/observability:test: ℹ tests 0
+@aqshara/observability:test: ℹ suites 0
+@aqshara/observability:test: ℹ pass 0
+@aqshara/observability:test: ℹ fail 0
+@aqshara/observability:test: ℹ cancelled 0
+@aqshara/observability:test: ℹ skipped 0
+@aqshara/observability:test: ℹ todo 0
+@aqshara/observability:test: ℹ duration_ms 12.483875
+@aqshara/documents:test: ℹ tests 0
+@aqshara/documents:test: ℹ suites 0
+@aqshara/documents:test: ℹ pass 0
+@aqshara/documents:test: ℹ fail 0
+@aqshara/documents:test: ℹ cancelled 0
+@aqshara/documents:test: ℹ skipped 0
+@aqshara/documents:test: ℹ todo 0
+@aqshara/documents:test: ℹ duration_ms 6.846333
+@aqshara/storage:test: ℹ tests 0
+@aqshara/storage:test: ℹ suites 0
+@aqshara/storage:test: ℹ pass 0
+@aqshara/storage:test: ℹ fail 0
+@aqshara/storage:test: ℹ cancelled 0
+@aqshara/storage:test: ℹ skipped 0
+@aqshara/storage:test: ℹ todo 0
+@aqshara/storage:test: ℹ duration_ms 9.828375
+@aqshara/queue:test: ℹ tests 0
+@aqshara/queue:test: ℹ suites 0
+@aqshara/queue:test: ℹ pass 0
+@aqshara/queue:test: ℹ fail 0
+@aqshara/queue:test: ℹ cancelled 0
+@aqshara/queue:test: ℹ skipped 0
+@aqshara/queue:test: ℹ todo 0
+@aqshara/queue:test: ℹ duration_ms 7.065958
+@aqshara/config:test: ✔ loadWorkspaceEnv loads package env files before workspace fallbacks (2.472625ms)
+@aqshara/config:test: ℹ tests 1
+@aqshara/config:test: ℹ suites 0
+@aqshara/config:test: ℹ pass 1
+@aqshara/config:test: ℹ fail 0
+@aqshara/config:test: ℹ cancelled 0
+@aqshara/config:test: ℹ skipped 0
+@aqshara/config:test: ℹ todo 0
+@aqshara/config:test: ℹ duration_ms 83.030125
+@aqshara/api-client:test: cache miss, executing 7b24dee0a8f10fff
+@aqshara/database:test: cache miss, executing 348b8166f305a13d
+@aqshara/worker:test: cache miss, executing 6a563b812f9b2493
+@aqshara/worker:test: 
+@aqshara/api-client:test: 
+@aqshara/database:test: 
+@aqshara/api-client:test: > @aqshara/api-client@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-client
+@aqshara/api-client:test: > node --test --experimental-strip-types
+@aqshara/database:test: > @aqshara/database@0.0.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/packages/database
+@aqshara/database:test: > node --test --experimental-strip-types
+@aqshara/database:test: 
+@aqshara/api-client:test: 
+@aqshara/worker:test: > @aqshara/worker@0.1.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/apps/worker
+@aqshara/worker:test: > node --test --experimental-strip-types
+@aqshara/worker:test: 
+@aqshara/worker:test: ℹ tests 0
+@aqshara/worker:test: ℹ suites 0
+@aqshara/worker:test: ℹ pass 0
+@aqshara/worker:test: ℹ fail 0
+@aqshara/worker:test: ℹ cancelled 0
+@aqshara/worker:test: ℹ skipped 0
+@aqshara/worker:test: ℹ todo 0
+@aqshara/worker:test: ℹ duration_ms 7.996292
+@aqshara/database:test: ℹ tests 0
+@aqshara/database:test: ℹ suites 0
+@aqshara/database:test: ℹ pass 0
+@aqshara/database:test: ℹ fail 0
+@aqshara/database:test: ℹ cancelled 0
+@aqshara/database:test: ℹ skipped 0
+@aqshara/database:test: ℹ todo 0
+@aqshara/database:test: ℹ duration_ms 8.858125
+@aqshara/api-client:test: ℹ tests 0
+@aqshara/api-client:test: ℹ suites 0
+@aqshara/api-client:test: ℹ pass 0
+@aqshara/api-client:test: ℹ fail 0
+@aqshara/api-client:test: ℹ cancelled 0
+@aqshara/api-client:test: ℹ skipped 0
+@aqshara/api-client:test: ℹ todo 0
+@aqshara/api-client:test: ℹ duration_ms 8.56625
+@aqshara/api:test: cache miss, executing a5a0bee299693b75
+@aqshara/web:test: cache miss, executing a31cdd166ebf8f8b
+@aqshara/web:test: 
+@aqshara/web:test: > @aqshara/web@0.1.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/apps/web
+@aqshara/web:test: > node --test --experimental-strip-types
+@aqshara/web:test: 
+@aqshara/api:test: 
+@aqshara/api:test: > @aqshara/api@0.1.0 test /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+@aqshara/api:test: > tsc -p tsconfig.json && node --test dist/src/*.test.js
+@aqshara/api:test: 
+@aqshara/web:test: ✔ fetchSession exposes structured provisioning errors (13.98075ms)
+@aqshara/web:test: ▶ editor helpers
+@aqshara/web:test:   ✔ creates a starter document with a heading and intro paragraph (0.372583ms)
+@aqshara/web:test:   ✔ builds an outline only from heading nodes (0.450375ms)
+@aqshara/web:test: ✔ editor helpers (1.331666ms)
+@aqshara/web:test: ℹ tests 3
+@aqshara/web:test: ℹ suites 1
+@aqshara/web:test: ℹ pass 3
+@aqshara/web:test: ℹ fail 0
+@aqshara/web:test: ℹ cancelled 0
+@aqshara/web:test: ℹ skipped 0
+@aqshara/web:test: ℹ todo 0
+@aqshara/web:test: ℹ duration_ms 116.85675
+@aqshara/api:test: [api:test] GET /health
+@aqshara/api:test: [api:test] GET /openapi.json
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] Webhook verification failed Error: Webhook verification failed
+@aqshara/api:test:     at Object.verifyWebhook (file:///Users/vitoandareasmanik/Development/project/aqshara-app/apps/api/dist/src/test-support/memory-app-context.js:162:23)
+@aqshara/api:test:     at file:///Users/vitoandareasmanik/Development/project/aqshara-app/apps/api/dist/src/app.js:530:35
+@aqshara/api:test:     at dispatch (file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/compose.js:22:23)
+@aqshara/api:test:     at file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/compose.js:22:46
+@aqshara/api:test:     at file:///Users/vitoandareasmanik/Development/project/aqshara-app/apps/api/dist/src/app.js:517:15
+@aqshara/api:test:     at dispatch (file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/compose.js:22:23)
+@aqshara/api:test:     at file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/compose.js:5:12
+@aqshara/api:test:     at file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/hono-base.js:301:31
+@aqshara/api:test:     at #dispatch (file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/hono-base.js:311:7)
+@aqshara/api:test:     at OpenAPIHono.fetch (file:///Users/vitoandareasmanik/Development/project/aqshara-app/node_modules/.pnpm/hono@4.12.8/node_modules/hono/dist/hono-base.js:325:26)
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] GET /v1/me
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] GET /v1/documents
+@aqshara/api:test: [api:test] PUT /v1/documents/1f03eae7-51b1-4961-a9f0-e4511243e9e5/content
+@aqshara/api:test: [api:test] PUT /v1/documents/1f03eae7-51b1-4961-a9f0-e4511243e9e5/content
+@aqshara/api:test: [api:test] PATCH /v1/documents/1f03eae7-51b1-4961-a9f0-e4511243e9e5
+@aqshara/api:test: [api:test] POST /v1/documents/1f03eae7-51b1-4961-a9f0-e4511243e9e5/archive
+@aqshara/api:test: [api:test] GET /v1/documents
+@aqshara/api:test: [api:test] DELETE /v1/documents/1f03eae7-51b1-4961-a9f0-e4511243e9e5
+@aqshara/api:test: [api:test] GET /v1/documents
+@aqshara/api:test: [api:test] POST /webhooks/clerk
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: ▶ api contract
+@aqshara/api:test:   ✔ returns a healthy response from /health (5.885583ms)
+@aqshara/api:test:   ✔ publishes an OpenAPI document (11.272667ms)
+@aqshara/api:test: ✔ api contract (17.621ms)
+@aqshara/api:test: ▶ clerk webhook provisioning
+@aqshara/api:test:   ✔ creates an internal user and default workspace from a user.created webhook (2.261459ms)
+@aqshara/api:test:   ✔ updates a provisioned user from a user.updated webhook (2.562667ms)
+@aqshara/api:test:   ✔ soft deletes a provisioned user from a user.deleted webhook (1.243583ms)
+@aqshara/api:test:   ✔ rejects invalid webhook signatures (0.910875ms)
+@aqshara/api:test:   ✔ handles duplicate user.created webhooks idempotently (0.876542ms)
+@aqshara/api:test:   ✔ ignores user.created webhooks without a primary email (0.490375ms)
+@aqshara/api:test:   ✔ safely ignores user.deleted webhooks for unknown users (0.403875ms)
+@aqshara/api:test:   ✔ does not resurrect a soft-deleted user on user.updated (0.839167ms)
+@aqshara/api:test: ✔ clerk webhook provisioning (9.963209ms)
+@aqshara/api:test: ▶ authenticated session resolution
+@aqshara/api:test:   ✔ rejects protected routes without authentication (0.444458ms)
+@aqshara/api:test:   ✔ returns provisioning pending when the authenticated user is not in the local database (0.313333ms)
+@aqshara/api:test: ✔ authenticated session resolution (0.833292ms)
+@aqshara/api:test: ▶ document workflow
+@aqshara/api:test:   ✔ creates, lists, updates, archives, and deletes documents for the signed-in user (3.019417ms)
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] POST /v1/documents
+@aqshara/api:test: [api:test] GET /v1/documents/recent
+@aqshara/api:test: [api:test] GET /v1/documents/recent
+@aqshara/api:test: [api:test] POST /v1/documents/f9cf2c43-14dd-487e-85b9-bbea15bf6aff/archive
+@aqshara/api:test: [api:test] GET /v1/documents/recent
+@aqshara/api:test:   ✔ lists recent documents with limit and excludes archived documents (83.845167ms)
+@aqshara/api:test: ✔ document workflow (86.97675ms)
+@aqshara/api:test: ▶ clerk backfill
+@aqshara/api:test:   ✔ accepts pnpm argument forwarding before help output (358.586708ms)
+@aqshara/api:test:   ✔ provisions a first-run Clerk user into a local user and workspace (0.880333ms)
+@aqshara/api:test:   ✔ keeps reruns duplicate-safe across repeated executions (0.177375ms)
+@aqshara/api:test:   ✔ does not resurrect a soft-deleted local user on rerun (0.87375ms)
+@aqshara/api:test: ✔ clerk backfill (361.020459ms)
+@aqshara/api:test: ℹ tests 18
+@aqshara/api:test: ℹ suites 5
+@aqshara/api:test: ℹ pass 18
+@aqshara/api:test: ℹ fail 0
+@aqshara/api:test: ℹ cancelled 0
+@aqshara/api:test: ℹ skipped 0
+@aqshara/api:test: ℹ todo 0
+@aqshara/api:test: ℹ duration_ms 820.716791
+
+ Tasks:    12 successful, 12 total
+Cached:    0 cached, 12 total
+  Time:    3.11s 
+

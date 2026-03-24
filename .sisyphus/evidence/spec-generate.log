@@ -1,0 +1,10 @@
+
+> aqshara-app@ spec:generate /Users/vitoandareasmanik/Development/project/aqshara-app
+> pnpm --filter @aqshara/api spec:generate
+
+
+> @aqshara/api@0.1.0 spec:generate /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+> tsc -p tsconfig.json && node dist/scripts/generate-openapi.js
+
+[api] GET /openapi.json
+OpenAPI spec written to /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api/openapi/openapi.json

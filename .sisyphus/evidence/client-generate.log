@@ -1,0 +1,10 @@
+
+> aqshara-app@ client:generate /Users/vitoandareasmanik/Development/project/aqshara-app
+> pnpm --filter @aqshara/api-client generate
+
+
+> @aqshara/api-client@0.0.0 generate /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-client
+> openapi-typescript ../../apps/api/openapi/openapi.json -o ./src/generated/types.ts
+
+✨ openapi-typescript 7.13.0
+🚀 ../../apps/api/openapi/openapi.json → ./src/generated/types.ts [37ms]

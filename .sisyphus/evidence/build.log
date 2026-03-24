@@ -1,0 +1,66 @@
+
+> aqshara-app@ build /Users/vitoandareasmanik/Development/project/aqshara-app
+> turbo run build
+
+• turbo 2.8.20
+
+   • Packages in scope: @aqshara/api, @aqshara/api-client, @aqshara/api-spec, @aqshara/auth, @aqshara/config, @aqshara/database, @aqshara/documents, @aqshara/eslint-config, @aqshara/observability, @aqshara/queue, @aqshara/storage, @aqshara/typescript-config, @aqshara/web, @aqshara/worker
+   • Running build in 14 packages
+   • Remote caching disabled
+
+@aqshara/worker:build: cache miss, executing a144aaf05f3a4ac5
+@aqshara/api:build: cache miss, executing 2807de7e20c8b655
+@aqshara/web:build: cache miss, executing cf20087e830b505d
+@aqshara/api:build: 
+@aqshara/api:build: > @aqshara/api@0.1.0 build /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+@aqshara/api:build: > tsc -p tsconfig.json
+@aqshara/api:build: 
+@aqshara/web:build: 
+@aqshara/web:build: > @aqshara/web@0.1.0 build /Users/vitoandareasmanik/Development/project/aqshara-app/apps/web
+@aqshara/web:build: > next build
+@aqshara/web:build: 
+@aqshara/worker:build: 
+@aqshara/worker:build: > @aqshara/worker@0.1.0 build /Users/vitoandareasmanik/Development/project/aqshara-app/apps/worker
+@aqshara/worker:build: > tsc -p tsconfig.json
+@aqshara/worker:build: 
+@aqshara/web:build: ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+@aqshara/web:build:  We detected multiple lockfiles and selected the directory of /Users/vitoandareasmanik/Development/package-lock.json as the root directory.
+@aqshara/web:build:  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+@aqshara/web:build:    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+@aqshara/web:build:  Detected additional lockfiles: 
+@aqshara/web:build:    * /Users/vitoandareasmanik/Development/project/aqshara-app/pnpm-workspace.yaml
+@aqshara/web:build: 
+@aqshara/web:build: ▲ Next.js 16.2.0 (Turbopack)
+@aqshara/web:build: - Environments: .env.local
+@aqshara/web:build: 
+@aqshara/web:build:   Creating an optimized production build ...
+@aqshara/web:build: ✓ Compiled successfully in 2.9s
+@aqshara/web:build:   Running TypeScript ...
+@aqshara/web:build:   Finished TypeScript in 1411ms ...
+@aqshara/web:build:   Collecting page data using 7 workers ...
+@aqshara/web:build:   Generating static pages using 7 workers (0/5) ...
+@aqshara/web:build:   Generating static pages using 7 workers (1/5) 
+@aqshara/web:build:   Generating static pages using 7 workers (2/5) 
+@aqshara/web:build:   Generating static pages using 7 workers (3/5) 
+@aqshara/web:build: ✓ Generating static pages using 7 workers (5/5) in 109ms
+@aqshara/web:build:   Finalizing page optimization ...
+@aqshara/web:build: 
+@aqshara/web:build: Route (app)
+@aqshara/web:build: ┌ ƒ /
+@aqshara/web:build: ├ ○ /_not-found
+@aqshara/web:build: ├ ƒ /app
+@aqshara/web:build: ├ ƒ /app/documents/[documentId]
+@aqshara/web:build: ├ ƒ /sign-in/[[...sign-in]]
+@aqshara/web:build: └ ƒ /sign-up/[[...sign-up]]
+@aqshara/web:build: 
+@aqshara/web:build: 
+@aqshara/web:build: ƒ Proxy (Middleware)
+@aqshara/web:build: 
+@aqshara/web:build: ○  (Static)   prerendered as static content
+@aqshara/web:build: ƒ  (Dynamic)  server-rendered on demand
+@aqshara/web:build: 
+
+ Tasks:    3 successful, 3 total
+Cached:    0 cached, 3 total
+  Time:    6.365s 
+

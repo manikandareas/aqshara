@@ -1,0 +1,1 @@
+- Task 2 used a script-only backfill path plus a small injected `listUsersPage({ limit, offset })` seam, so Clerk pagination stays testable without adding an admin route or worker job.

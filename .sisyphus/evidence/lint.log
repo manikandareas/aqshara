@@ -1,0 +1,75 @@
+
+> aqshara-app@ lint /Users/vitoandareasmanik/Development/project/aqshara-app
+> turbo run lint
+
+• turbo 2.8.20
+
+   • Packages in scope: @aqshara/api, @aqshara/api-client, @aqshara/api-spec, @aqshara/auth, @aqshara/config, @aqshara/database, @aqshara/documents, @aqshara/eslint-config, @aqshara/observability, @aqshara/queue, @aqshara/storage, @aqshara/typescript-config, @aqshara/web, @aqshara/worker
+   • Running lint in 14 packages
+   • Remote caching disabled
+
+@aqshara/config:lint: cache miss, executing 60066a0fc143d0a9
+@aqshara/storage:lint: cache miss, executing f4375bb900c7f27f
+@aqshara/documents:lint: cache miss, executing 651d70dbe9dde67b
+@aqshara/api-spec:lint: cache miss, executing 5d076904f0f43cd3
+@aqshara/observability:lint: cache miss, executing ee3218d8462e7df7
+@aqshara/auth:lint: cache miss, executing 38c070a7329d08d7
+@aqshara/queue:lint: cache miss, executing af552f344a0b3b40
+@aqshara/storage:lint: 
+@aqshara/storage:lint: > @aqshara/storage@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/storage
+@aqshara/storage:lint: > eslint . --max-warnings 0
+@aqshara/storage:lint: 
+@aqshara/queue:lint: 
+@aqshara/queue:lint: > @aqshara/queue@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/queue
+@aqshara/queue:lint: > eslint . --max-warnings 0
+@aqshara/queue:lint: 
+@aqshara/auth:lint: 
+@aqshara/auth:lint: > @aqshara/auth@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/auth
+@aqshara/auth:lint: > eslint . --max-warnings 0
+@aqshara/auth:lint: 
+@aqshara/observability:lint: 
+@aqshara/observability:lint: > @aqshara/observability@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/observability
+@aqshara/observability:lint: > eslint . --max-warnings 0
+@aqshara/observability:lint: 
+@aqshara/documents:lint: 
+@aqshara/documents:lint: > @aqshara/documents@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/documents
+@aqshara/documents:lint: > eslint . --max-warnings 0
+@aqshara/documents:lint: 
+@aqshara/api-spec:lint: 
+@aqshara/api-spec:lint: > @aqshara/api-spec@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-spec
+@aqshara/api-spec:lint: > eslint . --max-warnings 0
+@aqshara/api-spec:lint: 
+@aqshara/config:lint: 
+@aqshara/config:lint: > @aqshara/config@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/config
+@aqshara/config:lint: > eslint . --max-warnings 0
+@aqshara/config:lint: 
+@aqshara/worker:lint: cache miss, executing e135691b1e2c0db5
+@aqshara/api-client:lint: cache miss, executing a51fdd5c2429d5ac
+@aqshara/database:lint: cache miss, executing b42dfcf8d422b9d6
+@aqshara/worker:lint: 
+@aqshara/worker:lint: > @aqshara/worker@0.1.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/apps/worker
+@aqshara/worker:lint: > eslint . --max-warnings 0
+@aqshara/worker:lint: 
+@aqshara/api-client:lint: 
+@aqshara/api-client:lint: > @aqshara/api-client@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/api-client
+@aqshara/api-client:lint: > eslint . --max-warnings 0
+@aqshara/api-client:lint: 
+@aqshara/database:lint: 
+@aqshara/database:lint: > @aqshara/database@0.0.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/packages/database
+@aqshara/database:lint: > eslint . --max-warnings 0
+@aqshara/database:lint: 
+@aqshara/web:lint: cache miss, executing 5ca5e2fd6e3eb987
+@aqshara/api:lint: cache miss, executing dc651f9b3e5a60cc
+@aqshara/web:lint: 
+@aqshara/web:lint: > @aqshara/web@0.1.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/apps/web
+@aqshara/web:lint: > eslint --max-warnings 0
+@aqshara/web:lint: 
+@aqshara/api:lint: 
+@aqshara/api:lint: > @aqshara/api@0.1.0 lint /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+@aqshara/api:lint: > eslint . --max-warnings 0
+@aqshara/api:lint: 
+
+ Tasks:    12 successful, 12 total
+Cached:    0 cached, 12 total
+  Time:    4.206s 
+

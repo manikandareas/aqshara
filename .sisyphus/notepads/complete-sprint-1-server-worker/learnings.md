@@ -1,0 +1,2 @@
+- Webhook implementation already properly utilized `existingUser?.deletedAt` to prevent resurrection, and safely handled missing properties.
+- Shared backfill logic can reuse webhook bootstrap invariants by extracting identity normalization into `toProvisioningIdentity()` and still funneling mutations through `upsertUserFromWebhook()`.

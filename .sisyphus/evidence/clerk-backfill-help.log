@@ -1,0 +1,10 @@
+
+> @aqshara/api@0.1.0 clerk:backfill /Users/vitoandareasmanik/Development/project/aqshara-app/apps/api
+> tsc -p tsconfig.json && node dist/scripts/backfill-clerk-users.js "--" "--help"
+
+Usage: pnpm --filter @aqshara/api clerk:backfill -- [options]
+
+Options:
+  --help, -h                 Show this help message
+  --page-size <number>       Number of Clerk users to fetch per page (default: 100)
+

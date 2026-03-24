@@ -1,0 +1,1 @@
+- `pnpm --filter @aqshara/api clerk:backfill -- --help` forwards a literal `--`; the script parser must ignore that separator or the safe help path fails before printing usage.
