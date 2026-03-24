@@ -1,24 +1,9 @@
 {
-  "active_plan": "/Users/vitoandareasmanik/Development/project/aqshara-app/.sisyphus/plans/complete-sprint-1-server-worker.md",
-  "started_at": "2026-03-24T12:09:41.825Z",
+  "active_plan": "/Users/vitoandareasmanik/Development/project/aqshara-app/.sisyphus/plans/sprint-2-api-worker.md",
+  "started_at": "2026-03-24T16:36:59.028Z",
   "session_ids": [
-    "ses_2e05c4384ffeF18rIM8aghL1A2",
-    "ses_2e03d9342ffesp4v82FJdhpF95",
-    "ses_2e037fc1affeY026Vg2nuL1jRN",
-    "ses_2e037fd0effeB5mpzVrvZjtj08",
-    "ses_2e037fc63ffeBoGdFZFUIeH9S7",
-    "ses_2e0349313ffe62ZDsn2HR5WYFH",
-    "ses_2e0278fc6ffeAEbbqcz2Hf6Vjj",
-    "ses_2e0057ff5ffehP1uBlHwyBcMel",
-    "ses_2dffaac48ffev1N6dlcusLW0uw",
-    "ses_2dff4ab4dffe1cXbfpAEQq1dQ8",
-    "ses_2dff4abb3ffe8Xpeg7djtLau0f",
-    "ses_2dff4ac2effemCeYaUGws29mRO",
-    "ses_2dff4aac5ffe5xbdtMNLCPex4V",
-    "ses_2dfe33ce2ffeO4PWZbCnXtJjI8",
-    "ses_2dfb7dd33ffeDPNHtmlxECUKxT",
-    "ses_2dfabb8baffeXnQ3FpE6OuKbOu"
+    "ses_2df7b9b02ffeQUn3B9eYU8Pw6B"
   ],
-  "plan_name": "complete-sprint-1-server-worker",
+  "plan_name": "sprint-2-api-worker",
   "agent": "atlas"
 }
