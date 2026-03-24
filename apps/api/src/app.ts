@@ -5,7 +5,13 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { apiInfo } from "@aqshara/api-spec";
 import { getApiBaseUrl } from "@aqshara/config";
 import type { Context } from "hono";
-import type { AppContext, DocumentStatus, DocumentType } from "./lib/app-context.js";
+import {
+  type AppContext,
+  type DocumentStatus,
+  type DocumentType,
+  StaleDocumentSaveError,
+  toProvisioningIdentity,
+} from "./lib/app-context.js";
 
 const HealthResponseSchema = z.object({
   ok: z.boolean(),
@@ -200,6 +206,38 @@ const listDocumentsRoute = createRoute({
   },
 });
 
+const listRecentDocumentsRoute = createRoute({
+  method: "get",
+  path: "/v1/documents/recent",
+  tags: ["documents"],
+  summary: "List recent documents for the current user",
+  request: {
+    query: z.object({
+      limit: z.coerce.number().min(1).max(10).default(5).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Recent document list",
+      content: {
+        "application/json": {
+          schema: z.object({
+            documents: z.array(DocumentSchema),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: ErrorSchema,
+        },
+      },
+    },
+  },
+});
+
 const createDocumentRoute = createRoute({
   method: "post",
   path: "/v1/documents",
@@ -341,6 +379,7 @@ const saveDocumentRoute = createRoute({
         "application/json": {
           schema: z.object({
             contentJson: DocumentAstSchema,
+            baseUpdatedAt: z.string().datetime(),
           }),
         },
       },
@@ -367,6 +406,14 @@ const saveDocumentRoute = createRoute({
     },
     404: {
       description: "Not found",
+      content: {
+        "application/json": {
+          schema: ErrorSchema,
+        },
+      },
+    },
+    409: {
+      description: "Stale document save",
       content: {
         "application/json": {
           schema: ErrorSchema,
@@ -445,11 +492,7 @@ const deleteDocumentRoute = createRoute({
   },
 });
 
-function createErrorPayload(
-  code: string,
-  message: string,
-  requestId: string,
-) {
+function createErrorPayload(code: string, message: string, requestId: string) {
   return {
     code,
     message,
@@ -467,38 +510,19 @@ function getDocumentId(c: Context) {
   return documentId;
 }
 
-function getRequestId(c: { req: { header: (name: string) => string | undefined } }) {
+function getRequestId(c: {
+  req: { header: (name: string) => string | undefined };
+}) {
   return c.req.header("x-request-id") ?? "local";
 }
 
-function toWebhookIdentity(event: WebhookEvent) {
-  if (event.type !== "user.created" && event.type !== "user.updated") {
-    return null;
-  }
-
-  const primaryEmail = event.data.email_addresses.find(
-    (entry) => entry.id === event.data.primary_email_address_id,
-  ) ?? event.data.email_addresses[0];
-
-  if (!primaryEmail?.email_address) {
-    return null;
-  }
-
-  return {
-    clerkUserId: event.data.id,
-    email: primaryEmail.email_address,
-    name:
-      [event.data.first_name, event.data.last_name].filter(Boolean).join(" ").trim()
-      || event.data.username
-      || null,
-    avatarUrl: event.data.image_url ?? null,
-  };
-}
-
-async function requireAppUser(context: AppContext, c: {
-  req: { header: (name: string) => string | undefined };
-  json: (payload: unknown, status: number) => Response;
-}) {
+async function requireAppUser(
+  context: AppContext,
+  c: {
+    req: { header: (name: string) => string | undefined };
+    json: (payload: unknown, status: number) => Response;
+  },
+) {
   const clerkUserId = await context.getAuthenticatedClerkUserId(c as never);
 
   if (!clerkUserId) {
@@ -607,13 +631,18 @@ export function createApp(context: AppContext) {
       return c.json({ ok: true });
     }
 
-    const identity = toWebhookIdentity(event);
+    const identity =
+      event.type === "user.created" || event.type === "user.updated"
+        ? toProvisioningIdentity(event.data)
+        : null;
 
     if (!identity) {
       return c.json({ ok: true });
     }
 
-    const existingUser = await context.repository.getUserByClerkUserId(identity.clerkUserId);
+    const existingUser = await context.repository.getUserByClerkUserId(
+      identity.clerkUserId,
+    );
 
     if (existingUser?.deletedAt) {
       return c.json({ ok: true });
@@ -652,6 +681,32 @@ export function createApp(context: AppContext) {
     const documents = await context.repository.listDocuments({
       userId: result.bootstrap.user.id,
       status,
+    });
+
+    return c.json({
+      documents,
+    });
+  }) as never);
+
+  app.openapi(listRecentDocumentsRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+
+    if (result.error) {
+      return result.error;
+    }
+
+    const limitStr = c.req.query("limit");
+    let limit = 5;
+    if (limitStr) {
+      const parsed = parseInt(limitStr, 10);
+      if (!isNaN(parsed)) {
+        limit = Math.max(1, Math.min(10, parsed));
+      }
+    }
+
+    const documents = await context.repository.listRecentDocuments({
+      userId: result.bootstrap.user.id,
+      limit,
     });
 
     return c.json({
@@ -698,11 +753,7 @@ export function createApp(context: AppContext) {
 
     if (!document) {
       return c.json(
-        createErrorPayload(
-          "not_found",
-          "Document not found",
-          getRequestId(c),
-        ),
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
         404,
       );
     }
@@ -731,11 +782,7 @@ export function createApp(context: AppContext) {
 
     if (!document) {
       return c.json(
-        createErrorPayload(
-          "not_found",
-          "Document not found",
-          getRequestId(c),
-        ),
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
         404,
       );
     }
@@ -754,28 +801,44 @@ export function createApp(context: AppContext) {
 
     const body = (await c.req.json()) as {
       contentJson: z.infer<typeof DocumentAstSchema>;
+      baseUpdatedAt: string;
     };
-    const document = await context.repository.updateDocumentContent({
-      userId: result.bootstrap.user.id,
-      documentId: getDocumentId(c),
-      contentJson: body.contentJson,
-      plainText: toPlainText(body.contentJson),
-    });
+    try {
+      const document = await context.repository.updateDocumentContent({
+        userId: result.bootstrap.user.id,
+        documentId: getDocumentId(c),
+        contentJson: body.contentJson,
+        plainText: toPlainText(body.contentJson),
+        baseUpdatedAt: body.baseUpdatedAt,
+      });
 
-    if (!document) {
-      return c.json(
-        createErrorPayload(
-          "not_found",
-          "Document not found",
-          getRequestId(c),
-        ),
-        404,
-      );
+      if (!document) {
+        return c.json(
+          createErrorPayload(
+            "not_found",
+            "Document not found",
+            getRequestId(c),
+          ),
+          404,
+        );
+      }
+
+      return c.json({
+        document,
+      });
+    } catch (error) {
+      if (error instanceof StaleDocumentSaveError) {
+        return c.json(
+          createErrorPayload(
+            "stale_document_save",
+            "Stale document save",
+            getRequestId(c),
+          ),
+          409,
+        );
+      }
+      throw error;
     }
-
-    return c.json({
-      document,
-    });
   }) as never);
 
   app.openapi(archiveDocumentRoute, (async (c: Context) => {
@@ -792,11 +855,7 @@ export function createApp(context: AppContext) {
 
     if (!document) {
       return c.json(
-        createErrorPayload(
-          "not_found",
-          "Document not found",
-          getRequestId(c),
-        ),
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
         404,
       );
     }
@@ -820,11 +879,7 @@ export function createApp(context: AppContext) {
 
     if (!deleted) {
       return c.json(
-        createErrorPayload(
-          "not_found",
-          "Document not found",
-          getRequestId(c),
-        ),
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
         404,
       );
     }
@@ -852,11 +907,7 @@ export function createApp(context: AppContext) {
 
   app.notFound((c) => {
     return c.json(
-      createErrorPayload(
-        "not_found",
-        "Route not found",
-        getRequestId(c),
-      ),
+      createErrorPayload("not_found", "Route not found", getRequestId(c)),
       404,
     );
   });

@@ -60,13 +60,16 @@ describe("api contract", () => {
 describe("clerk webhook provisioning", () => {
   it("creates an internal user and default workspace from a user.created webhook", async () => {
     const app = createApp(createMemoryAppContext());
-    const webhookResponse = await app.request("http://localhost/webhooks/clerk", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(createClerkUserEvent("user.created")),
       },
-      body: JSON.stringify(createClerkUserEvent("user.created")),
-    });
+    );
 
     assert.equal(webhookResponse.status, 200);
 
@@ -98,20 +101,23 @@ describe("clerk webhook provisioning", () => {
       },
       body: JSON.stringify(createClerkUserEvent("user.created")),
     });
-    const webhookResponse = await app.request("http://localhost/webhooks/clerk", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(
+          createClerkUserEvent("user.updated", {
+            email: "updated@example.com",
+            firstName: "Updated",
+            lastName: "Name",
+            imageUrl: "https://example.com/avatar.png",
+          }),
+        ),
       },
-      body: JSON.stringify(
-        createClerkUserEvent("user.updated", {
-          email: "updated@example.com",
-          firstName: "Updated",
-          lastName: "Name",
-          imageUrl: "https://example.com/avatar.png",
-        }),
-      ),
-    });
+    );
 
     assert.equal(webhookResponse.status, 200);
 
@@ -137,18 +143,21 @@ describe("clerk webhook provisioning", () => {
       },
       body: JSON.stringify(createClerkUserEvent("user.created")),
     });
-    const webhookResponse = await app.request("http://localhost/webhooks/clerk", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        type: "user.deleted",
-        data: {
-          id: "user_clerk_123",
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          type: "user.deleted",
+          data: {
+            id: "user_clerk_123",
+          },
+        }),
+      },
+    );
 
     assert.equal(webhookResponse.status, 200);
 
@@ -161,6 +170,136 @@ describe("clerk webhook provisioning", () => {
 
     assert.equal(response.status, 403);
     assert.equal(payload.code, "account_deleted");
+  });
+
+  it("rejects invalid webhook signatures", async () => {
+    const app = createApp(createMemoryAppContext());
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "clerk-signature": "invalid",
+        },
+        body: JSON.stringify(createClerkUserEvent("user.created")),
+      },
+    );
+
+    const payload = await webhookResponse.json();
+    assert.equal(webhookResponse.status, 400);
+    assert.equal(payload.code, "invalid_webhook");
+
+    const response = await app.request("http://localhost/v1/me", {
+      headers: {
+        "x-test-user-id": "user_clerk_123",
+      },
+    });
+    assert.equal(response.status, 409);
+  });
+
+  it("handles duplicate user.created webhooks idempotently", async () => {
+    const app = createApp(createMemoryAppContext());
+    const event = JSON.stringify(createClerkUserEvent("user.created"));
+
+    const res1 = await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: event,
+    });
+    assert.equal(res1.status, 200);
+
+    const res2 = await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: event,
+    });
+    assert.equal(res2.status, 200);
+
+    const response = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": "user_clerk_123" },
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.user.email, "user@example.com");
+  });
+
+  it("ignores user.created webhooks without a primary email", async () => {
+    const app = createApp(createMemoryAppContext());
+    const event = createClerkUserEvent("user.created");
+    event.data.email_addresses = [];
+
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      },
+    );
+
+    assert.equal(webhookResponse.status, 200);
+
+    const response = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": "user_clerk_123" },
+    });
+    assert.equal(response.status, 409);
+  });
+
+  it("safely ignores user.deleted webhooks for unknown users", async () => {
+    const app = createApp(createMemoryAppContext());
+    const webhookResponse = await app.request(
+      "http://localhost/webhooks/clerk",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "user.deleted",
+          data: { id: "unknown_user_123" },
+        }),
+      },
+    );
+
+    assert.equal(webhookResponse.status, 200);
+  });
+
+  it("does not resurrect a soft-deleted user on user.updated", async () => {
+    const app = createApp(createMemoryAppContext());
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_delete_test" }),
+      ),
+    });
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "user.deleted",
+        data: { id: "user_delete_test" },
+      }),
+    });
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.updated", {
+          id: "user_delete_test",
+          email: "new@example.com",
+        }),
+      ),
+    });
+
+    const response = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": "user_delete_test" },
+    });
+
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, "account_deleted");
   });
 });
 
@@ -221,7 +360,10 @@ describe("document workflow", () => {
     assert.equal(createResponse.status, 201);
     assert.equal(createdDocument.document.title, "Draft Skripsi");
     assert.equal(createdDocument.document.type, "skripsi");
-    assert.equal(createdDocument.document.workspaceId, bootstrapPayload.workspace.id);
+    assert.equal(
+      createdDocument.document.workspaceId,
+      bootstrapPayload.workspace.id,
+    );
 
     const listResponse = await app.request("http://localhost/v1/documents", {
       headers: authHeaders,
@@ -244,13 +386,36 @@ describe("document workflow", () => {
               { type: "paragraph", text: "Latar belakang masalah." },
             ],
           },
+          baseUpdatedAt: createdDocument.document.updatedAt,
         }),
       },
     );
     const savedPayload = await saveResponse.json();
 
     assert.equal(saveResponse.status, 200);
-    assert.equal(savedPayload.document.plainText, "Pendahuluan\nLatar belakang masalah.");
+    assert.equal(
+      savedPayload.document.plainText,
+      "Pendahuluan\nLatar belakang masalah.",
+    );
+
+    const staleSaveResponse = await app.request(
+      `http://localhost/v1/documents/${createdDocument.document.id}/content`,
+      {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({
+          contentJson: {
+            version: 1,
+            nodes: [{ type: "paragraph", text: "Should be rejected" }],
+          },
+          baseUpdatedAt: createdDocument.document.updatedAt,
+        }),
+      },
+    );
+    const staleSavePayload = await staleSaveResponse.json();
+
+    assert.equal(staleSaveResponse.status, 409);
+    assert.equal(staleSavePayload.code, "stale_document_save");
 
     const renameResponse = await app.request(
       `http://localhost/v1/documents/${createdDocument.document.id}`,
@@ -285,7 +450,10 @@ describe("document workflow", () => {
 
     assert.equal(archivedListResponse.status, 200);
     assert.equal(archivedListPayload.documents.length, 1);
-    assert.equal(archivedListPayload.documents[0].title, "Draft Skripsi Revisi");
+    assert.equal(
+      archivedListPayload.documents[0].title,
+      "Draft Skripsi Revisi",
+    );
 
     const deleteResponse = await app.request(
       `http://localhost/v1/documents/${createdDocument.document.id}`,
@@ -297,12 +465,87 @@ describe("document workflow", () => {
 
     assert.equal(deleteResponse.status, 204);
 
-    const emptyListResponse = await app.request("http://localhost/v1/documents", {
-      headers: authHeaders,
-    });
+    const emptyListResponse = await app.request(
+      "http://localhost/v1/documents",
+      {
+        headers: authHeaders,
+      },
+    );
     const emptyListPayload = await emptyListResponse.json();
 
     assert.equal(emptyListResponse.status, 200);
     assert.equal(emptyListPayload.documents.length, 0);
+  });
+
+  it("lists recent documents with limit and excludes archived documents", async () => {
+    const app = createApp(createMemoryAppContext());
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(createClerkUserEvent("user.created")),
+    });
+    const authHeaders = {
+      "content-type": "application/json",
+      "x-test-user-id": "user_clerk_123",
+    };
+
+    for (let i = 1; i <= 6; i++) {
+      await app.request("http://localhost/v1/documents", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          title: `Doc ${i}`,
+          type: "skripsi",
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const listResponse = await app.request(
+      "http://localhost/v1/documents/recent",
+      {
+        headers: authHeaders,
+      },
+    );
+    const listPayload = await listResponse.json();
+
+    assert.equal(listResponse.status, 200);
+    assert.equal(listPayload.documents.length, 5);
+    assert.equal(listPayload.documents[0].title, "Doc 6");
+
+    const listLimitResponse = await app.request(
+      "http://localhost/v1/documents/recent?limit=2",
+      {
+        headers: authHeaders,
+      },
+    );
+    const listLimitPayload = await listLimitResponse.json();
+
+    assert.equal(listLimitResponse.status, 200);
+    assert.equal(listLimitPayload.documents.length, 2);
+    assert.equal(listLimitPayload.documents[0].title, "Doc 6");
+    assert.equal(listLimitPayload.documents[1].title, "Doc 5");
+
+    await app.request(
+      `http://localhost/v1/documents/${listLimitPayload.documents[0].id}/archive`,
+      {
+        method: "POST",
+        headers: authHeaders,
+      },
+    );
+
+    const listAfterArchiveResponse = await app.request(
+      "http://localhost/v1/documents/recent",
+      {
+        headers: authHeaders,
+      },
+    );
+    const listAfterArchivePayload = await listAfterArchiveResponse.json();
+
+    assert.equal(listAfterArchiveResponse.status, 200);
+    assert.equal(listAfterArchivePayload.documents.length, 5);
+    assert.equal(listAfterArchivePayload.documents[0].title, "Doc 5");
   });
 });

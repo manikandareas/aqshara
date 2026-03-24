@@ -13,6 +13,7 @@ import type {
   DocumentType,
   Workspace,
 } from "../lib/app-context.js";
+import { StaleDocumentSaveError } from "../lib/app-context.js";
 import { createLogger } from "../lib/logger.js";
 
 type MemoryState = {
@@ -29,15 +30,22 @@ class MemoryRepository implements AppRepository {
   };
 
   async getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
-    return this.state.users.find((entry) => entry.clerkUserId === clerkUserId) ?? null;
+    return (
+      this.state.users.find((entry) => entry.clerkUserId === clerkUserId) ??
+      null
+    );
   }
 
   async getWorkspaceForUser(userId: string): Promise<Workspace | null> {
-    return this.state.workspaces.find((entry) => entry.userId === userId) ?? null;
+    return (
+      this.state.workspaces.find((entry) => entry.userId === userId) ?? null
+    );
   }
 
   async upsertUserFromWebhook(identity: AuthIdentity): Promise<AppBootstrap> {
-    let user = this.state.users.find((entry) => entry.clerkUserId === identity.clerkUserId);
+    let user = this.state.users.find(
+      (entry) => entry.clerkUserId === identity.clerkUserId,
+    );
 
     if (!user) {
       user = {
@@ -57,7 +65,9 @@ class MemoryRepository implements AppRepository {
       user.deletedAt = null;
     }
 
-    let workspace = this.state.workspaces.find((entry) => entry.userId === user.id);
+    let workspace = this.state.workspaces.find(
+      (entry) => entry.userId === user.id,
+    );
 
     if (!workspace) {
       workspace = {
@@ -71,8 +81,12 @@ class MemoryRepository implements AppRepository {
     return { user, workspace };
   }
 
-  async softDeleteUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
-    const user = this.state.users.find((entry) => entry.clerkUserId === clerkUserId);
+  async softDeleteUserByClerkUserId(
+    clerkUserId: string,
+  ): Promise<AppUser | null> {
+    const user = this.state.users.find(
+      (entry) => entry.clerkUserId === clerkUserId,
+    );
 
     if (!user) {
       return null;
@@ -83,7 +97,9 @@ class MemoryRepository implements AppRepository {
   }
 
   async listDocuments(options: DocumentListOptions): Promise<AppDocument[]> {
-    const workspace = this.state.workspaces.find((entry) => entry.userId === options.userId);
+    const workspace = this.state.workspaces.find(
+      (entry) => entry.userId === options.userId,
+    );
 
     if (!workspace) {
       return [];
@@ -92,9 +108,30 @@ class MemoryRepository implements AppRepository {
     return this.state.documents
       .filter((entry) => entry.workspaceId === workspace.id)
       .filter((entry) =>
-        options.status === "archived" ? Boolean(entry.archivedAt) : !entry.archivedAt,
+        options.status === "archived"
+          ? Boolean(entry.archivedAt)
+          : !entry.archivedAt,
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async listRecentDocuments(options: {
+    userId: string;
+    limit: number;
+  }): Promise<AppDocument[]> {
+    const workspace = this.state.workspaces.find(
+      (entry) => entry.userId === options.userId,
+    );
+
+    if (!workspace) {
+      return [];
+    }
+
+    return this.state.documents
+      .filter((entry) => entry.workspaceId === workspace.id)
+      .filter((entry) => !entry.archivedAt)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, options.limit);
   }
 
   async createDocument(input: {
@@ -102,7 +139,9 @@ class MemoryRepository implements AppRepository {
     title: string;
     type: DocumentType;
   }): Promise<AppDocument> {
-    const workspace = this.state.workspaces.find((entry) => entry.userId === input.userId);
+    const workspace = this.state.workspaces.find(
+      (entry) => entry.userId === input.userId,
+    );
 
     if (!workspace) {
       throw new Error("Workspace not found for user");
@@ -132,7 +171,9 @@ class MemoryRepository implements AppRepository {
     userId: string;
     documentId: string;
   }): Promise<AppDocument | null> {
-    const workspace = this.state.workspaces.find((entry) => entry.userId === input.userId);
+    const workspace = this.state.workspaces.find(
+      (entry) => entry.userId === input.userId,
+    );
 
     if (!workspace) {
       return null;
@@ -140,7 +181,8 @@ class MemoryRepository implements AppRepository {
 
     return (
       this.state.documents.find(
-        (entry) => entry.workspaceId === workspace.id && entry.id === input.documentId,
+        (entry) =>
+          entry.workspaceId === workspace.id && entry.id === input.documentId,
       ) ?? null
     );
   }
@@ -167,11 +209,19 @@ class MemoryRepository implements AppRepository {
     documentId: string;
     contentJson: DocumentAst;
     plainText: string;
+    baseUpdatedAt: string;
   }): Promise<AppDocument | null> {
     const document = await this.getDocumentById(input);
 
     if (!document) {
       return null;
+    }
+
+    if (
+      new Date(document.updatedAt).getTime() >
+      new Date(input.baseUpdatedAt).getTime()
+    ) {
+      throw new StaleDocumentSaveError();
     }
 
     document.contentJson = input.contentJson;
@@ -205,7 +255,9 @@ class MemoryRepository implements AppRepository {
       return false;
     }
 
-    this.state.documents = this.state.documents.filter((entry) => entry.id !== input.documentId);
+    this.state.documents = this.state.documents.filter(
+      (entry) => entry.id !== input.documentId,
+    );
     return true;
   }
 }
@@ -221,6 +273,9 @@ export function createMemoryAppContext(): AppContext {
       return c.req.header("x-test-user-id") ?? null;
     },
     async verifyWebhook(request) {
+      if (request.headers.get("clerk-signature") === "invalid") {
+        throw new Error("Webhook verification failed");
+      }
       return (await request.json()) as WebhookEvent;
     },
     repository,

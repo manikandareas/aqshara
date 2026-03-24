@@ -2,7 +2,12 @@ import { clerkMiddleware, getAuth } from "@hono/clerk-auth";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import type { DocumentAst } from "@aqshara/documents";
-import { createDatabase, documents, users, workspaces } from "@aqshara/database";
+import {
+  createDatabase,
+  documents,
+  users,
+  workspaces,
+} from "@aqshara/database";
 import { and, desc, eq, isNull, isNotNull } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { Logger } from "./logger.js";
@@ -17,6 +22,39 @@ export type AuthIdentity = {
   email: string;
   name: string | null;
   avatarUrl: string | null;
+};
+
+export type ClerkUserEmailAddress = {
+  id: string | null;
+  email_address: string | null;
+};
+
+export type ClerkProvisioningUser = {
+  id: string;
+  primary_email_address_id: string | null;
+  email_addresses: ClerkUserEmailAddress[];
+  first_name: string | null;
+  last_name: string | null;
+  username: string | null;
+  image_url: string | null;
+};
+
+export type ClerkUsersPage = {
+  users: ClerkProvisioningUser[];
+};
+
+export type ClerkUsersPageLister = (input: {
+  limit: number;
+  offset: number;
+}) => Promise<ClerkUsersPage>;
+
+export type ClerkBackfillSummary = {
+  pagesProcessed: number;
+  usersSeen: number;
+  usersSynced: number;
+  duplicateUsersSkipped: number;
+  usersSkippedDeleted: number;
+  usersSkippedMissingEmail: number;
 };
 
 export type AppUser = {
@@ -68,18 +106,32 @@ export type DocumentPatch = {
   type?: DocumentType;
 };
 
+export class StaleDocumentSaveError extends Error {
+  constructor() {
+    super("Stale document save");
+    this.name = "StaleDocumentSaveError";
+  }
+}
+
 export type AppRepository = {
   getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null>;
   getWorkspaceForUser(userId: string): Promise<Workspace | null>;
   upsertUserFromWebhook(identity: AuthIdentity): Promise<AppBootstrap>;
   softDeleteUserByClerkUserId(clerkUserId: string): Promise<AppUser | null>;
   listDocuments(options: DocumentListOptions): Promise<AppDocument[]>;
+  listRecentDocuments(options: {
+    userId: string;
+    limit: number;
+  }): Promise<AppDocument[]>;
   createDocument(input: {
     userId: string;
     title: string;
     type: DocumentType;
   }): Promise<AppDocument>;
-  getDocumentById(input: { userId: string; documentId: string }): Promise<AppDocument | null>;
+  getDocumentById(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<AppDocument | null>;
   updateDocument(input: {
     userId: string;
     documentId: string;
@@ -90,9 +142,16 @@ export type AppRepository = {
     documentId: string;
     contentJson: DocumentAst;
     plainText: string;
+    baseUpdatedAt: string;
   }): Promise<AppDocument | null>;
-  archiveDocument(input: { userId: string; documentId: string }): Promise<AppDocument | null>;
-  deleteDocument(input: { userId: string; documentId: string }): Promise<boolean>;
+  archiveDocument(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<AppDocument | null>;
+  deleteDocument(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<boolean>;
 };
 
 export type AppContext = {
@@ -128,6 +187,107 @@ function toDocumentRecord(row: typeof documents.$inferSelect): AppDocument {
     createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
     updatedAt: toIsoString(row.updatedAt) ?? new Date().toISOString(),
   };
+}
+
+export function toProvisioningIdentity(
+  user: ClerkProvisioningUser,
+): AuthIdentity | null {
+  const primaryEmail =
+    user.email_addresses.find(
+      (entry) => entry.id === user.primary_email_address_id,
+    ) ?? user.email_addresses[0];
+
+  if (!primaryEmail?.email_address) {
+    return null;
+  }
+
+  return {
+    clerkUserId: user.id,
+    email: primaryEmail.email_address,
+    name:
+      [user.first_name, user.last_name].filter(Boolean).join(" ").trim() ||
+      user.username ||
+      null,
+    avatarUrl: user.image_url ?? null,
+  };
+}
+
+export async function backfillClerkUsers(input: {
+  repository: Pick<
+    AppRepository,
+    "getUserByClerkUserId" | "upsertUserFromWebhook"
+  >;
+  listUsersPage: ClerkUsersPageLister;
+  pageSize?: number;
+  logger?: Pick<Logger, "info">;
+}): Promise<ClerkBackfillSummary> {
+  const pageSize = input.pageSize ?? 100;
+
+  if (!Number.isInteger(pageSize) || pageSize < 1) {
+    throw new Error("Backfill page size must be at least 1");
+  }
+
+  const seenClerkUserIds = new Set<string>();
+  const summary: ClerkBackfillSummary = {
+    pagesProcessed: 0,
+    usersSeen: 0,
+    usersSynced: 0,
+    duplicateUsersSkipped: 0,
+    usersSkippedDeleted: 0,
+    usersSkippedMissingEmail: 0,
+  };
+
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await input.listUsersPage({
+      limit: pageSize,
+      offset,
+    });
+
+    if (page.users.length === 0) {
+      break;
+    }
+
+    summary.pagesProcessed += 1;
+
+    for (const user of page.users) {
+      if (seenClerkUserIds.has(user.id)) {
+        summary.duplicateUsersSkipped += 1;
+        continue;
+      }
+
+      seenClerkUserIds.add(user.id);
+      summary.usersSeen += 1;
+
+      const identity = toProvisioningIdentity(user);
+
+      if (!identity) {
+        summary.usersSkippedMissingEmail += 1;
+        continue;
+      }
+
+      const existingUser = await input.repository.getUserByClerkUserId(
+        identity.clerkUserId,
+      );
+
+      if (existingUser?.deletedAt) {
+        summary.usersSkippedDeleted += 1;
+        continue;
+      }
+
+      await input.repository.upsertUserFromWebhook(identity);
+      summary.usersSynced += 1;
+    }
+
+    if (page.users.length < pageSize) {
+      break;
+    }
+  }
+
+  input.logger?.info(
+    `Clerk backfill synced ${summary.usersSynced} user(s) across ${summary.pagesProcessed} page(s)`,
+  );
+
+  return summary;
 }
 
 class PostgresAppRepository implements AppRepository {
@@ -203,16 +363,19 @@ class PostgresAppRepository implements AppRepository {
     }
 
     if (existingUser) {
-      await this.db
-        .update(users)
-        .set({
-          email: identity.email,
-          name: identity.name,
-          avatarUrl: identity.avatarUrl,
-          deletedAt: null,
-          updatedAt: now,
-        })
-        .where(eq(users.id, existingUser.id));
+      user = (
+        await this.db
+          .update(users)
+          .set({
+            email: identity.email,
+            name: identity.name,
+            avatarUrl: identity.avatarUrl,
+            deletedAt: null,
+            updatedAt: now,
+          })
+          .where(eq(users.id, existingUser.id))
+          .returning()
+      )[0]!;
     }
 
     let workspace = (
@@ -254,7 +417,9 @@ class PostgresAppRepository implements AppRepository {
     };
   }
 
-  async softDeleteUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
+  async softDeleteUserByClerkUserId(
+    clerkUserId: string,
+  ): Promise<AppUser | null> {
     const existingUser = (
       await this.db
         .select()
@@ -309,6 +474,26 @@ class PostgresAppRepository implements AppRepository {
     return rows.map((row) => toDocumentRecord(row.document));
   }
 
+  async listRecentDocuments(options: {
+    userId: string;
+    limit: number;
+  }): Promise<AppDocument[]> {
+    const rows = await this.db
+      .select({ document: documents })
+      .from(documents)
+      .innerJoin(workspaces, eq(documents.workspaceId, workspaces.id))
+      .where(
+        and(
+          eq(workspaces.userId, options.userId),
+          isNull(documents.archivedAt),
+        ),
+      )
+      .orderBy(desc(documents.updatedAt))
+      .limit(options.limit);
+
+    return rows.map((row) => toDocumentRecord(row.document));
+  }
+
   async createDocument(input: {
     userId: string;
     title: string;
@@ -356,7 +541,10 @@ class PostgresAppRepository implements AppRepository {
       .from(documents)
       .innerJoin(workspaces, eq(documents.workspaceId, workspaces.id))
       .where(
-        and(eq(workspaces.userId, input.userId), eq(documents.id, input.documentId)),
+        and(
+          eq(workspaces.userId, input.userId),
+          eq(documents.id, input.documentId),
+        ),
       )
       .limit(1);
 
@@ -396,11 +584,19 @@ class PostgresAppRepository implements AppRepository {
     documentId: string;
     contentJson: DocumentAst;
     plainText: string;
+    baseUpdatedAt: string;
   }): Promise<AppDocument | null> {
     const existing = await this.getDocumentById(input);
 
     if (!existing) {
       return null;
+    }
+
+    if (
+      new Date(existing.updatedAt).getTime() >
+      new Date(input.baseUpdatedAt).getTime()
+    ) {
+      throw new StaleDocumentSaveError();
     }
 
     const [document] = await this.db
@@ -461,7 +657,9 @@ class PostgresAppRepository implements AppRepository {
   }
 }
 
-async function getAuthenticatedClerkUserId(requestContext: object): Promise<string | null> {
+async function getAuthenticatedClerkUserId(
+  requestContext: object,
+): Promise<string | null> {
   const auth = getAuth(requestContext as never);
   return auth.userId ?? null;
 }
