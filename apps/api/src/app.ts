@@ -1,6 +1,7 @@
 import { toPlainText } from "@aqshara/documents";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { Scalar } from "@scalar/hono-api-reference";
+import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
 import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { apiInfo } from "@aqshara/api-spec";
@@ -888,7 +889,7 @@ export function createApp(context: AppContext) {
     return c.body(null, 204);
   }) as never);
 
-  app.doc("/openapi.json", {
+  const openApiDocumentConfig = {
     openapi: "3.1.0",
     info: apiInfo,
     servers: [
@@ -897,7 +898,13 @@ export function createApp(context: AppContext) {
         description: "Configured API base URL",
       },
     ],
-  });
+  };
+
+  app.doc("/openapi.json", openApiDocumentConfig);
+
+  const llmsMarkdown = createMarkdownFromOpenApi(
+    JSON.stringify(app.getOpenAPI31Document(openApiDocumentConfig)),
+  );
 
   app.get(
     "/swagger",
@@ -912,6 +919,10 @@ export function createApp(context: AppContext) {
       url: "/openapi.json",
     }),
   );
+
+  app.get("/llms.txt", async (c) => {
+    return c.text(await llmsMarkdown);
+  });
 
   app.notFound((c) => {
     return c.json(

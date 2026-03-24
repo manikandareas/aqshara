@@ -65,6 +65,16 @@ describe("api contract", () => {
     assert.match(response.headers.get("content-type") ?? "", /text\/html/i);
     assert.match(payload, /openapi\.json/i);
   });
+
+  it("publishes an llms.txt markdown reference", async () => {
+    const app = createApp(createMemoryAppContext());
+    const response = await app.request("http://localhost/llms.txt");
+    const payload = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /text\/plain/i);
+    assert.match(payload, /Aqshara API|\/v1\/me/i);
+  });
 });
 
 describe("clerk webhook provisioning", () => {
