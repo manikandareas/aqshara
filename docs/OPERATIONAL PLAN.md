@@ -59,35 +59,38 @@ Status dokumen ini per update terbaru:
    - `documents.type`
    - `documents.archived_at`
 8. Clerk provider + route protection di web sudah tersedia.
-9. Endpoint session `/v1/me` sudah tersedia sebagai read path untuk user yang sudah terprovision.
+9. Endpoint session `/v1/me` sudah tersedia sebagai read path for user yang sudah terprovision.
 10. Endpoint public webhook `POST /webhooks/clerk` sudah tersedia untuk:
     - `user.created`
     - `user.updated`
     - `user.deleted`
-11. Provisioning user internal + workspace default sekarang berjalan via webhook Clerk, bukan lagi bootstrap saat request authenticated pertama.
-12. Endpoint dokumen berikut sudah tersedia:
-    - list documents
+11. Provisioning user internal + workspace default sekarang berjalan via webhook Clerk.
+12. Clerk user backfill script tersedia via `pnpm --filter @aqshara/api clerk:backfill` dengan dukungan safe operational check `--dry-run`.
+13. Endpoint dokumen berikut sudah tersedia:
+    - list documents (`GET /v1/documents`)
+    - list recent documents (`GET /v1/documents/recent`) with limit (1-10, default 5)
     - create document
     - get document by id
     - rename/update metadata
-    - save content
+    - save content with stale-save protection via `baseUpdatedAt`
     - archive document
     - delete document
-13. Dashboard dokumen di web sudah tersedia dengan:
+14. Dashboard dokumen di web sudah tersedia dengan:
     - create document
     - active documents
     - archived documents
+    - recent documents surface
     - empty state dasar
     - provisioning pending state jika webhook belum selesai
     - deleted account state jika user lokal sudah dinonaktifkan
-14. Structured editor v1 sudah tersedia dengan block:
+15. Structured editor v1 sudah tersedia dengan block:
     - heading
     - paragraph
     - bullet list
     - outline sidebar
-15. Autosave debounce sudah tersedia dan menyimpan `content_json` + `plain_text` melalui API.
-16. Root scripts dan Turbo tasks untuk `lint`, `check-types`, `test`, `spec:generate`, `client:generate`, `db:generate`, `db:migrate`, `db:push`, `db:studio`, dan `build` sudah tersedia.
-17. Schema database sekarang sudah mendukung soft delete user melalui `users.deleted_at`.
+16. Autosave debounce sudah tersedia dan menyimpan `content_json` + `plain_text` melalui API, dengan stale-write protection via `baseUpdatedAt` (`409 stale_document_save`).
+17. Root scripts dan Turbo tasks untuk `lint`, `check-types`, `test`, `spec:generate`, `client:generate`, `db:generate`, `db:migrate`, `db:push`, `db:studio`, dan `build` sudah tersedia.
+18. Schema database sekarang sudah mendukung soft delete user melalui `users.deleted_at`.
 
 ### Verifikasi yang sudah lolos
 
@@ -102,11 +105,9 @@ Status dokumen ini per update terbaru:
 ### Yang masih belum selesai untuk scope launch
 
 1. Verifikasi delivery webhook Clerk untuk environment production masih bergantung pada setup dashboard, tunnel/domain, dan secret nyata.
-2. Existing Clerk users yang sudah ada sebelum webhook diaktifkan belum memiliki mekanisme backfill; provisioning saat ini mengandalkan event baru/replay webhook.
-3. Recent documents masih belum dipisah sebagai surface UX tersendiri; saat ini urutan list memakai `updated_at`.
-4. Basic inline formatting dan keyboard shortcuts editor belum tersedia.
-5. Snapshot versioning periodik belum tersedia; save path saat ini masih berupa overwrite debounce sederhana.
-6. Plan/usage summary masih berupa foundation stub untuk Free plan, belum enforcement penuh.
+2. Basic inline formatting dan keyboard shortcuts editor belum tersedia.
+3. Snapshot versioning periodik belum tersedia; save path saat ini sudah memiliki stale-write protection tetapi belum memiliki version history periodik.
+4. Plan/usage summary masih berupa foundation stub untuk Free plan, belum enforcement penuh.
 
 ### Implikasi ke execution plan
 
@@ -585,18 +586,16 @@ Menetapkan fondasi produk: auth, workspace, document CRUD, dan editor dasar.
 - Sudah selesai di repo:
   - Clerk integration dan protected routes di web
   - session read endpoint + Clerk webhook provisioning untuk user/workspace
-  - document dashboard
+  - Clerk user backfill strategy/script (termasuk `--dry-run` untuk safe operational check tanpa akses Clerk live)
+  - document dashboard dengan list "recent documents"
   - create/open/rename/archive/delete dokumen
   - editor basic dengan paragraph + heading + list
   - outline sidebar
-  - autosave awal
+  - autosave awal dengan stale-save protection via `baseUpdatedAt` (`409 stale_document_save`)
 - Masih tersisa / perlu hardening:
   - validasi langsung Google sign-in + email OTP fallback pada env Clerk nyata
   - validasi delivery webhook Clerk pada domain/tunnel production-like
-  - replay/backfill strategy bila existing user Clerk perlu diadopsi ke flow baru
-  - surface "recent documents" terpisah bila tetap dianggap launch-critical
   - keyboard shortcuts editor
-  - save race-condition hardening lebih lanjut bila ditemukan saat QA
 
 ### Exit criteria sprint
 
