@@ -11,7 +11,8 @@ import type { MiddlewareHandler } from "hono";
 import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
 
-import { AiService, FakeAiProvider } from "./ai/index.js";
+import type { AiService } from "./ai/service.js";
+import { createAiServiceForEnv } from "./ai/factory.js";
 import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
 import { PostgresAppRepository } from "../repositories/postgres-app-repository.js";
 import type {
@@ -172,7 +173,7 @@ async function getAuthenticatedClerkUserId(
 export function createProductionAppContext(): AppContext {
   const repository = new PostgresAppRepository();
   const logger = createLogger("api");
-  const aiService = new AiService(new FakeAiProvider());
+  const aiService = createAiServiceForEnv(logger);
 
   const getUsage = async (user: AppUser) => {
     const period = getCurrentBillingPeriod();

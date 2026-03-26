@@ -11,7 +11,10 @@
     "REDIS_HOST",
     "REDIS_PORT",
     "DATABASE_URL",
-    "API_PORT"
+    "API_PORT",
+    "OPENAI_API_KEY",
+    "OPENAI_URL",
+    "OPENAI_MODEL"
   ],
   "tasks": {
     "build": {

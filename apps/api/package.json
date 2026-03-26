@@ -28,7 +28,8 @@
     "@scalar/hono-api-reference": "^0.10.4",
     "@scalar/openapi-to-markdown": "^0.4.13",
     "drizzle-orm": "^0.44.6",
-    "hono": "^4.10.4"
+    "hono": "^4.10.4",
+    "openai": "^6.33.0"
   },
   "devDependencies": {
     "@aqshara/eslint-config": "workspace:*",

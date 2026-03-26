@@ -7,7 +7,7 @@ export function buildOutlinePrompt(
   if (input.context) {
     prompt += `\n\nContext:\n${input.context}`;
   }
-  prompt += `\n\nFormat the output as a valid JSON object matching the OutlineDraft schema.`;
+  prompt += `\n\nOutput only a valid JSON object matching the OutlineDraft schema. Do not wrap the JSON in markdown code fences or add any text before or after it.`;
   return prompt;
 }
 
@@ -46,13 +46,13 @@ export function buildWritingPrompt(input: GenerateWritingInput): string {
     prompt += `\n\nAdditional Context:\n${input.context}`;
   }
 
-  prompt += `\n\nFormat the output as a valid JSON array of DocumentBlock objects.`;
+  prompt += `\n\nOutput only a valid JSON array of DocumentBlock objects. Do not wrap the JSON in markdown code fences or add any text before or after it.`;
   return prompt;
 }
 
 export const SYSTEM_PROMPTS = {
   outline:
-    "You are an expert academic and professional writer. You generate clear, well-structured outlines.",
+    "You are an expert academic and professional writer. You generate clear, well-structured outlines. You respond with JSON only—no markdown fences, no commentary.",
   writing:
-    "You are an expert academic and professional writer. You produce high-quality, precise text formatted as DocumentBlock JSON arrays.",
+    "You are an expert academic and professional writer. You produce high-quality, precise text as DocumentBlock JSON arrays. You respond with JSON only—no markdown fences, no commentary.",
 };
