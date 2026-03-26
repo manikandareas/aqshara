@@ -6,9 +6,9 @@ import type {
 } from "@aqshara/documents";
 import { createTemplateDocument, toPlainText } from "@aqshara/documents";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
+import type { AppContext } from "../lib/app-context.js";
 import type {
   AppBootstrap,
-  AppContext,
   AppDocument,
   AppRepository,
   AppUser,
@@ -18,9 +18,10 @@ import type {
   DocumentType,
   Workspace,
   AppDocumentChangeProposal,
-} from "../lib/app-context.js";
-import { getCurrentBillingPeriod } from "../lib/app-context.js";
-import { StaleDocumentSaveError } from "../lib/app-context.js";
+} from "../repositories/app-repository.types.js";
+import { StaleDocumentSaveError } from "../repositories/app-repository.types.js";
+import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
+import { createApiServices } from "../services/index.js";
 import { createLogger } from "../lib/logger.js";
 import { AiService, FakeAiProvider } from "../lib/ai/index.js";
 
@@ -586,6 +587,49 @@ class MemoryRepository implements AppRepository {
 
 export function createMemoryAppContext(): AppContext {
   const repository = new MemoryRepository();
+  const aiService = new AiService(new FakeAiProvider());
+
+  const getUsage = async (user: AppUser) => {
+    if (!user) {
+      return {
+        period: getCurrentBillingPeriod(),
+        aiActionsUsed: 0,
+        aiActionsReserved: 0,
+        aiActionsRemaining: 10,
+        exportsRemaining: 3,
+        sourceUploadsRemaining: 0,
+      };
+    }
+    const period = getCurrentBillingPeriod();
+    const limit = user.planCode === "free" ? 10 : 10;
+
+    const counters = repository.state.monthlyUsageCounters.find(
+      (c) => c.userId === user.id && c.period === period,
+    );
+    const used = counters?.aiActionsUsed ?? 0;
+
+    const reservedRecord = repository.state.aiActionsReserved.find(
+      (r) => r.userId === user.id && r.period === period,
+    );
+    const reserved = reservedRecord?.aiActionsReserved ?? 0;
+
+    const remaining = Math.max(0, limit - (used + reserved));
+
+    return {
+      period,
+      aiActionsUsed: used,
+      aiActionsReserved: reserved,
+      aiActionsRemaining: remaining,
+      exportsRemaining: 3,
+      sourceUploadsRemaining: 0,
+    };
+  };
+
+  const services = createApiServices({
+    repository,
+    aiService,
+    getUsage,
+  });
 
   return {
     authMiddleware: async (_c, next) => {
@@ -602,41 +646,8 @@ export function createMemoryAppContext(): AppContext {
     },
     repository,
     logger: createLogger("api:test"),
-    aiService: new AiService(new FakeAiProvider()),
-    async getUsage(user) {
-      if (!user) {
-        return {
-          period: getCurrentBillingPeriod(),
-          aiActionsUsed: 0,
-          aiActionsReserved: 0,
-          aiActionsRemaining: 10,
-          exportsRemaining: 3,
-          sourceUploadsRemaining: 0,
-        };
-      }
-      const period = getCurrentBillingPeriod();
-      const limit = user.planCode === "free" ? 10 : 10;
-
-      const counters = repository.state.monthlyUsageCounters.find(
-        (c) => c.userId === user.id && c.period === period,
-      );
-      const used = counters?.aiActionsUsed ?? 0;
-
-      const reservedRecord = repository.state.aiActionsReserved.find(
-        (r) => r.userId === user.id && r.period === period,
-      );
-      const reserved = reservedRecord?.aiActionsReserved ?? 0;
-
-      const remaining = Math.max(0, limit - (used + reserved));
-
-      return {
-        period,
-        aiActionsUsed: used,
-        aiActionsReserved: reserved,
-        aiActionsRemaining: remaining,
-        exportsRemaining: 3,
-        sourceUploadsRemaining: 0,
-      };
-    },
+    aiService,
+    getUsage,
+    services,
   };
 }

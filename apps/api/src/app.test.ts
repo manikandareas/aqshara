@@ -1224,7 +1224,7 @@ describe("AI action error handling", () => {
     });
     const { document: initialDoc } = await createRes.json();
 
-    const saveRes = await app.request(
+    await app.request(
       `http://localhost/v1/documents/${initialDoc.id}/content`,
       {
         method: "PUT",
