@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { ErrorSchema } from "../openapi/schemas/common.js";
 import type { ApiEnv } from "../hono-env.js";
 import { createErrorPayload, getRequestId } from "../http/errors.js";
+import { logApiErrorEvent } from "../lib/error-events.js";
 
 const webhookRoute = createRoute({
   method: "post",
@@ -41,6 +42,13 @@ export function registerClerkWebhookRoutes(app: OpenAPIHono<ApiEnv>): void {
       event = await context.verifyWebhook(c.req.raw);
     } catch (error) {
       context.logger.error("Webhook verification failed", error);
+      logApiErrorEvent({
+        path: c.req.path,
+        requestId: getRequestId(c),
+        code: "webhook_verification_failed",
+        failureClass: "system",
+        message: error instanceof Error ? error.message : String(error),
+      });
       return c.json(
         createErrorPayload(
           "invalid_webhook",

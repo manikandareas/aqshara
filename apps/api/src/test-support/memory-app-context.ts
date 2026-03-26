@@ -7,20 +7,29 @@ import type {
 import { createTemplateDocument, toPlainText } from "@aqshara/documents";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import type { AppContext } from "../lib/app-context.js";
+import { createInMemoryRateLimitStore } from "../http/rate-limit-middleware.js";
 import type {
   AppBootstrap,
   AppDocument,
+  AppDocumentChangeProposal,
+  AppExport,
   AppRepository,
   AppUser,
   AuthIdentity,
   DocumentListOptions,
   DocumentPatch,
   DocumentType,
+  PreflightWarning,
   Workspace,
-  AppDocumentChangeProposal,
 } from "../repositories/app-repository.types.js";
 import { StaleDocumentSaveError } from "../repositories/app-repository.types.js";
 import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
+import {
+  MAX_IN_FLIGHT_EXPORTS_PER_USER,
+  PLAN_EXPORTS_LIMIT,
+  PLAN_AI_ACTIONS_LIMIT,
+} from "../lib/plan-limits.js";
+import type { ExportDocxPayload } from "@aqshara/queue";
 import { createApiServices } from "../services/index.js";
 import { createLogger } from "../lib/logger.js";
 import { AiService, FakeAiProvider } from "../lib/ai/index.js";
@@ -68,9 +77,10 @@ type MemoryState = {
   monthlyUsageCounters: MonthlyUsageCounter[];
   aiActionsReserved: AiActionReserved[];
   documentChangeProposals: AppDocumentChangeProposal[];
+  exports: AppExport[];
 };
 
-class MemoryRepository implements AppRepository {
+export class MemoryRepository implements AppRepository {
   public readonly state: MemoryState = {
     users: [],
     workspaces: [],
@@ -79,7 +89,24 @@ class MemoryRepository implements AppRepository {
     monthlyUsageCounters: [],
     aiActionsReserved: [],
     documentChangeProposals: [],
+    exports: [],
   };
+
+  private countInFlightExports(userId: string, period: string): number {
+    return this.state.exports.filter(
+      (e) =>
+        e.userId === userId &&
+        e.billingPeriod === period &&
+        (e.status === "queued" || e.status === "processing"),
+    ).length;
+  }
+
+  private getExportsUsed(userId: string, period: string): number {
+    const counters = this.state.monthlyUsageCounters.find(
+      (c) => c.userId === userId && c.period === period,
+    );
+    return counters?.exportsUsed ?? 0;
+  }
 
   async getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
     return (
@@ -238,6 +265,10 @@ class MemoryRepository implements AppRepository {
     );
   }
 
+  async getDocumentByIdUnscoped(documentId: string): Promise<AppDocument | null> {
+    return this.state.documents.find((entry) => entry.id === documentId) ?? null;
+  }
+
   async updateDocument(input: {
     userId: string;
     documentId: string;
@@ -351,7 +382,7 @@ class MemoryRepository implements AppRepository {
       }
     }
 
-    const limit = 10;
+    const limit = PLAN_AI_ACTIONS_LIMIT;
 
     const counters = this.state.monthlyUsageCounters.find(
       (c) => c.userId === input.userId && c.period === period,
@@ -548,6 +579,182 @@ class MemoryRepository implements AppRepository {
     return document;
   }
 
+  async requestDocxExport(input: {
+    userId: string;
+    documentId: string;
+    workspaceId: string;
+    idempotencyKey: string;
+    preflightWarnings: PreflightWarning[];
+  }): Promise<
+    | { ok: true; export: AppExport; isReplay: boolean }
+    | {
+        ok: false;
+        reason:
+          | "document_not_found"
+          | "workspace_mismatch"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const document = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+
+    if (!document) {
+      return { ok: false, reason: "document_not_found" };
+    }
+
+    if (document.workspaceId !== input.workspaceId) {
+      return { ok: false, reason: "workspace_mismatch" };
+    }
+
+    const replay = this.state.exports.find(
+      (e) =>
+        e.userId === input.userId && e.idempotencyKey === input.idempotencyKey,
+    );
+    if (replay) {
+      return { ok: true, export: replay, isReplay: true };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if (this.countInFlightExports(input.userId, period) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if (this.getExportsUsed(input.userId, period) >= PLAN_EXPORTS_LIMIT) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    const now = new Date().toISOString();
+    const exportRow: AppExport = {
+      id: randomUUID(),
+      documentId: input.documentId,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      billingPeriod: period,
+      format: "docx",
+      status: "queued",
+      idempotencyKey: input.idempotencyKey,
+      bullmqJobId: null,
+      preflightWarnings: input.preflightWarnings,
+      retryCount: 0,
+      storageKey: null,
+      contentType: null,
+      fileSizeBytes: null,
+      errorMessage: null,
+      errorCode: null,
+      processingStartedAt: null,
+      readyAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.state.exports.unshift(exportRow);
+    return { ok: true, export: exportRow, isReplay: false };
+  }
+
+  async getExportForUser(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<AppExport | null> {
+    return (
+      this.state.exports.find(
+        (e) => e.id === input.exportId && e.userId === input.userId,
+      ) ?? null
+    );
+  }
+
+  async listExportsForUser(input: {
+    userId: string;
+    limit: number;
+  }): Promise<AppExport[]> {
+    return this.state.exports
+      .filter((e) => e.userId === input.userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, input.limit);
+  }
+
+  async setExportBullmqJobId(input: {
+    userId: string;
+    exportId: string;
+    bullmqJobId: string;
+  }): Promise<AppExport | null> {
+    const exp = this.state.exports.find(
+      (e) => e.id === input.exportId && e.userId === input.userId,
+    );
+    if (!exp) return null;
+    exp.bullmqJobId = input.bullmqJobId;
+    exp.updatedAt = new Date().toISOString();
+    return exp;
+  }
+
+  async markExportFailed(input: {
+    userId: string;
+    exportId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppExport | null> {
+    const exp = this.state.exports.find(
+      (e) => e.id === input.exportId && e.userId === input.userId,
+    );
+    if (!exp || exp.status !== "queued") return null;
+    exp.status = "failed";
+    exp.errorCode = input.errorCode;
+    exp.errorMessage = input.errorMessage;
+    exp.updatedAt = new Date().toISOString();
+    return exp;
+  }
+
+  async retryFailedExport(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<
+    | { ok: true; export: AppExport }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const current = await this.getExportForUser({
+      userId: input.userId,
+      exportId: input.exportId,
+    });
+
+    if (!current) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (current.status !== "failed") {
+      return { ok: false, reason: "not_failed" };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if (this.countInFlightExports(input.userId, period) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if (this.getExportsUsed(input.userId, period) >= PLAN_EXPORTS_LIMIT) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    current.status = "queued";
+    current.bullmqJobId = null;
+    current.errorMessage = null;
+    current.errorCode = null;
+    current.processingStartedAt = null;
+    current.retryCount += 1;
+    current.updatedAt = new Date().toISOString();
+
+    return { ok: true, export: current };
+  }
+
   async invalidateStaleProposals(input: {
     documentId: string;
     baseRevisionUpdatedAt: string;
@@ -588,6 +795,7 @@ class MemoryRepository implements AppRepository {
 export function createMemoryAppContext(): AppContext {
   const repository = new MemoryRepository();
   const aiService = new AiService(new FakeAiProvider());
+  const rateLimitStore = createInMemoryRateLimitStore();
 
   const getUsage = async (user: AppUser) => {
     if (!user) {
@@ -595,13 +803,13 @@ export function createMemoryAppContext(): AppContext {
         period: getCurrentBillingPeriod(),
         aiActionsUsed: 0,
         aiActionsReserved: 0,
-        aiActionsRemaining: 10,
-        exportsRemaining: 3,
+        aiActionsRemaining: PLAN_AI_ACTIONS_LIMIT,
+        exportsRemaining: PLAN_EXPORTS_LIMIT,
         sourceUploadsRemaining: 0,
       };
     }
     const period = getCurrentBillingPeriod();
-    const limit = user.planCode === "free" ? 10 : 10;
+    const limit = PLAN_AI_ACTIONS_LIMIT;
 
     const counters = repository.state.monthlyUsageCounters.find(
       (c) => c.userId === user.id && c.period === period,
@@ -615,20 +823,28 @@ export function createMemoryAppContext(): AppContext {
 
     const remaining = Math.max(0, limit - (used + reserved));
 
+    const exportsUsed = counters?.exportsUsed ?? 0;
+    const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
+
     return {
       period,
       aiActionsUsed: used,
       aiActionsReserved: reserved,
       aiActionsRemaining: remaining,
-      exportsRemaining: 3,
+      exportsRemaining,
       sourceUploadsRemaining: 0,
     };
   };
+
+  const enqueueExportDocx = async (payload: ExportDocxPayload) => ({
+    jobId: `mem-${payload.exportId}`,
+  });
 
   const services = createApiServices({
     repository,
     aiService,
     getUsage,
+    enqueueExportDocx,
   });
 
   return {
@@ -649,5 +865,6 @@ export function createMemoryAppContext(): AppContext {
     aiService,
     getUsage,
     services,
+    rateLimitStore,
   };
 }

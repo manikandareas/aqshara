@@ -1,4 +1,5 @@
 import { z } from "zod";
+import IORedis, { type Redis as RedisClient } from "ioredis";
 
 const envSchema = z.object({
   API_BASE_URL: z.url().default("http://localhost:9000"),
@@ -19,6 +20,8 @@ const env = envSchema.parse({
   REDIS_PORT: process.env.REDIS_PORT,
   DATABASE_URL: process.env.DATABASE_URL,
 });
+
+let redisClient: RedisClient | undefined;
 
 export function getApiBaseUrl() {
   return env.API_BASE_URL;
@@ -42,6 +45,37 @@ export function getRedisConnection() {
     port: env.REDIS_PORT,
     maxRetriesPerRequest: null,
   };
+}
+
+export function getRedisClient(): RedisClient {
+  if (!redisClient) {
+    const connection = getRedisConnection();
+    const RedisCtor = IORedis as unknown as {
+      new (options: {
+        host: string;
+        port: number;
+        lazyConnect: boolean;
+        connectTimeout: number;
+        commandTimeout: number;
+        enableOfflineQueue: boolean;
+        maxRetriesPerRequest: number;
+        retryStrategy: () => null;
+      }): RedisClient;
+    };
+
+    redisClient = new RedisCtor({
+      host: connection.host,
+      port: connection.port,
+      lazyConnect: true,
+      connectTimeout: 500,
+      commandTimeout: 500,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null,
+    });
+  }
+
+  return redisClient!;
 }
 
 export function getDatabaseUrl() {

@@ -9,11 +9,17 @@ import { getApiBaseUrl } from "@aqshara/config";
 import type { AppContext } from "./lib/app-context.js";
 import type { ApiEnv } from "./hono-env.js";
 import { createErrorPayload, getRequestId } from "./http/errors.js";
+import { logApiErrorEvent } from "./lib/error-events.js";
+import {
+  createAuthenticatedRateLimiter,
+  createIpRateLimiter,
+} from "./http/rate-limit-middleware.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerClerkWebhookRoutes } from "./routes/webhooks.js";
 import { registerSessionRoutes } from "./routes/session.js";
 import { registerDocumentRoutes } from "./routes/documents.js";
 import { registerProposalRoutes } from "./routes/proposals.js";
+import { registerExportRoutes } from "./routes/exports.js";
 
 export const apiFactory = createFactory<ApiEnv>();
 
@@ -22,16 +28,34 @@ export function createApp(context: AppContext) {
 
   app.use("*", async (c, next) => {
     c.set("ctx", context);
-    context.logger.info(`${c.req.method} ${c.req.path}`);
+    const requestId = getRequestId(c);
+    context.logger.info("request", {
+      method: c.req.method,
+      path: c.req.path,
+      requestId,
+    });
     await next();
   });
   app.use("/v1/*", context.authMiddleware);
+  app.use(
+    "/v1/*",
+    createAuthenticatedRateLimiter({
+      store: context.rateLimitStore,
+    }),
+  );
 
   registerSystemRoutes(app);
+  app.use(
+    "/webhooks/*",
+    createIpRateLimiter(400, {
+      store: context.rateLimitStore,
+    }),
+  );
   registerClerkWebhookRoutes(app);
   registerSessionRoutes(app);
   registerDocumentRoutes(app);
   registerProposalRoutes(app);
+  registerExportRoutes(app);
 
   const openApiDocumentConfig = {
     openapi: "3.1.0",
@@ -76,12 +100,22 @@ export function createApp(context: AppContext) {
   });
 
   app.onError((error, c) => {
-    context.logger.error("Unhandled API error", error);
+    const requestId = getRequestId(c);
+    context.logger.error("Unhandled API error", error, {
+      requestId,
+    });
+    logApiErrorEvent({
+      path: c.req.path,
+      requestId,
+      code: "unhandled_api_error",
+      failureClass: "system",
+      message: error instanceof Error ? error.message : String(error),
+    });
     return c.json(
       createErrorPayload(
         "internal_error",
         "Unexpected API error",
-        getRequestId(c),
+        requestId,
       ),
       500,
     );

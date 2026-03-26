@@ -4,20 +4,15 @@ export const queueNames = {
   exportDocx: "export_docx",
 } as const;
 
+/** BullMQ job name for DOCX export jobs. */
+export const exportDocxJobName = "export_docx" as const;
+
 export const exportDocxPayloadSchema = z.object({
-  documentId: z.string(),
-  userId: z.string(),
-  workspaceId: z.string(),
-  idempotencyKey: z.string(),
+  exportId: z.string().min(1),
+  documentId: z.string().min(1),
+  userId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  idempotencyKey: z.string().min(1),
 });
 
 export type ExportDocxPayload = z.infer<typeof exportDocxPayloadSchema>;
-
-export const jobHandlers: Record<string, (payload: ExportDocxPayload) => Promise<unknown>> = {
-  export_docx: async (payload) => {
-    return {
-      status: "queued",
-      ...payload,
-    };
-  },
-};

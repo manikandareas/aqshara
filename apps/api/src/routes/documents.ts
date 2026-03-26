@@ -17,6 +17,7 @@ import {
   getRequestId,
   requireAppUser,
 } from "../http/api-http.js";
+import { logApiErrorEvent } from "../lib/error-events.js";
 
 const listDocumentsRoute = createRoute({
   method: "get",
@@ -658,6 +659,13 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
           404,
         );
       }
+      logApiErrorEvent({
+        path: c.req.path,
+        requestId: getRequestId(c),
+        code: "stale_document_save",
+        failureClass: "user",
+        documentId: getDocumentId(c),
+      });
       return c.json(
         createErrorPayload(
           "stale_document_save",

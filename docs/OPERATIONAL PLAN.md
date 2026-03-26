@@ -26,6 +26,12 @@ Status dokumen ini per update terbaru:
   - Writing proposal lifecycle (`/ai/proposals`, `/apply`, `/dismiss`) dengan idempotensi dan stale-write protection.
   - Quota ledger (reserve, finalize, release) terintegrasi dengan AI service layer.
   - Regenerasi OpenAPI contract dan API client (`@aqshara/api-client`) yang sinkron dengan backend.
+- Sprint 3 backend launch-hardening sudah selesai diimplementasikan:
+  - DOCX export async lengkap dengan export history, retry path, preflight warning, dan queue/job lifecycle.
+  - Worker export memakai bounded retry policy, terminal-failure handling, graceful shutdown, dan status reconciliation yang lebih aman.
+  - Rate limiting sensitif di API sudah dipindahkan ke Redis-backed route-family buckets dengan fail-open/fail-closed policy per jalur.
+  - Structured `error_event` monitoring sudah aktif untuk auth/session, document save, AI, export API, dan worker export failures.
+  - Structured launch funnel event untuk export tetap dipertahankan, sehingga launch analytics dan operational failure stream terpisah dengan jelas.
 - Struktur aktif repo sekarang adalah:
   - `apps/web` untuk product frontend Next.js
   - `apps/api` untuk Hono REST API
@@ -717,6 +723,19 @@ Menyelesaikan launch path dengan export, observability, hardening, dan final pol
 - DOCX formatting parity
 - Export retry dan failure recovery
 - Plan limit UI dan observability coverage
+
+### Status implementasi sprint
+
+- Sudah selesai di repo (Backend focus):
+  - DOCX export async end-to-end dengan request/replay idempotensi, export history, ready/download flow, dan retry endpoint.
+  - Preflight warning untuk export DOCX dan retry policy BullMQ dengan exponential backoff.
+  - Worker export failure strategy untuk membedakan retryable vs terminal failure, plus graceful shutdown worker.
+  - Structured `launch_event` untuk funnel export dan structured `error_event` untuk auth/session, stale save, AI failures, export request/retry/download failures, serta worker export failures.
+  - Redis-backed rate limiting untuk route sensitif dengan route-family bucket, authenticated/IP split, dan degradation policy yang explicit.
+  - Monitoring metadata sekarang membedakan jalur user-side vs system-side lewat `failureClass`.
+- Masih tersisa / perlu closeout:
+  - Validasi ingress/proxy production agar header IP tidak spoofable untuk IP-based limiting.
+  - Launch checklist final / go-live verification tetap perlu dijalankan sebagai aktivitas operasional, bukan sekadar implementasi code path.
 
 ---
 

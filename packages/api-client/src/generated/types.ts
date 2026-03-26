@@ -1826,6 +1826,537 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/documents/{documentId}/exports/docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request async DOCX export for a document */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        idempotencyKey: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Export queued or replayed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            export: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                workspaceId: string;
+                                billingPeriod: string;
+                                /** @enum {string} */
+                                format: "docx";
+                                /** @enum {string} */
+                                status: "queued" | "processing" | "ready" | "failed";
+                                idempotencyKey: string | null;
+                                bullmqJobId: string | null;
+                                preflightWarnings: {
+                                    /** @enum {string} */
+                                    code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                    message: string;
+                                    blockId?: string;
+                                }[] | null;
+                                retryCount: number;
+                                storageKey: string | null;
+                                contentType: string | null;
+                                fileSizeBytes: number | null;
+                                errorMessage: string | null;
+                                errorCode: string | null;
+                                processingStartedAt: string | null;
+                                readyAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                            isReplay: boolean;
+                            preflightWarnings: {
+                                /** @enum {string} */
+                                code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                message: string;
+                                blockId?: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Document belongs to another workspace */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Document not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Quota or concurrency limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Queue unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recent exports for the current user */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Export list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            exports: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                workspaceId: string;
+                                billingPeriod: string;
+                                /** @enum {string} */
+                                format: "docx";
+                                /** @enum {string} */
+                                status: "queued" | "processing" | "ready" | "failed";
+                                idempotencyKey: string | null;
+                                bullmqJobId: string | null;
+                                preflightWarnings: {
+                                    /** @enum {string} */
+                                    code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                    message: string;
+                                    blockId?: string;
+                                }[] | null;
+                                retryCount: number;
+                                storageKey: string | null;
+                                contentType: string | null;
+                                fileSizeBytes: number | null;
+                                errorMessage: string | null;
+                                errorCode: string | null;
+                                processingStartedAt: string | null;
+                                readyAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get export status by id */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Export detail */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            export: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                workspaceId: string;
+                                billingPeriod: string;
+                                /** @enum {string} */
+                                format: "docx";
+                                /** @enum {string} */
+                                status: "queued" | "processing" | "ready" | "failed";
+                                idempotencyKey: string | null;
+                                bullmqJobId: string | null;
+                                preflightWarnings: {
+                                    /** @enum {string} */
+                                    code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                    message: string;
+                                    blockId?: string;
+                                }[] | null;
+                                retryCount: number;
+                                storageKey: string | null;
+                                contentType: string | null;
+                                fileSizeBytes: number | null;
+                                errorMessage: string | null;
+                                errorCode: string | null;
+                                processingStartedAt: string | null;
+                                readyAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports/{exportId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry a failed export */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Export re-queued */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            export: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                workspaceId: string;
+                                billingPeriod: string;
+                                /** @enum {string} */
+                                format: "docx";
+                                /** @enum {string} */
+                                status: "queued" | "processing" | "ready" | "failed";
+                                idempotencyKey: string | null;
+                                bullmqJobId: string | null;
+                                preflightWarnings: {
+                                    /** @enum {string} */
+                                    code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                    message: string;
+                                    blockId?: string;
+                                }[] | null;
+                                retryCount: number;
+                                storageKey: string | null;
+                                contentType: string | null;
+                                fileSizeBytes: number | null;
+                                errorMessage: string | null;
+                                errorCode: string | null;
+                                processingStartedAt: string | null;
+                                readyAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not in failed state */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Quota or concurrency limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Queue unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports/{exportId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download completed DOCX export */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    exportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DOCX file */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": unknown;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found or not ready */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {

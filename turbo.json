@@ -14,7 +14,9 @@
     "API_PORT",
     "OPENAI_API_KEY",
     "OPENAI_URL",
-    "OPENAI_MODEL"
+    "OPENAI_MODEL",
+    "AQSHARA_LOG_FORMAT",
+    "AQSHARA_EXPORTS_DIR"
   ],
   "tasks": {
     "build": {

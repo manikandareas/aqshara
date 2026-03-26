@@ -1,7 +1,40 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
+import { createStorageKey, writeExportFile } from "@aqshara/storage";
 import { createApp } from "./app.js";
-import { createMemoryAppContext } from "./test-support/memory-app-context.js";
+import { PLAN_EXPORTS_LIMIT } from "./lib/plan-limits.js";
+import { getCurrentBillingPeriod } from "./repositories/billing-period.js";
+import {
+  createMemoryAppContext,
+  MemoryRepository,
+} from "./test-support/memory-app-context.js";
+
+async function captureErrorEvents<T>(
+  action: () => T | Promise<T>,
+): Promise<{ result: T; events: Array<Record<string, unknown>> }> {
+  const lines: string[] = [];
+  const originalInfo = console.info;
+
+  console.info = ((value?: unknown, ...rest: unknown[]) => {
+    lines.push([value, ...rest].map((entry) => String(entry)).join(" "));
+  }) as typeof console.info;
+
+  try {
+    const result = await action();
+    const events = lines
+      .filter((line) => line.trim().startsWith("{"))
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((payload) => payload.type === "error_event");
+
+    return { result, events };
+  } finally {
+    console.info = originalInfo;
+  }
+}
 
 function createClerkUserEvent(
   type: "user.created" | "user.updated",
@@ -54,6 +87,21 @@ describe("api contract", () => {
     assert.equal(response.status, 200);
     assert.equal(typeof payload.openapi, "string");
     assert.equal(payload.info.title, "Aqshara API");
+  });
+
+  it("documents DOCX export workspace mismatch as a 403 response", async () => {
+    const app = createApp(createMemoryAppContext());
+    const response = await app.request("http://localhost/openapi.json");
+    const payload = await response.json();
+
+    const docxExportPost =
+      payload.paths["/v1/documents/{documentId}/exports/docx"]?.post;
+
+    assert.ok(docxExportPost, "expected DOCX export route in OpenAPI document");
+    assert.ok(
+      docxExportPost.responses["403"],
+      "expected DOCX export route to document a 403 response",
+    );
   });
 
   it("serves a Scalar API reference UI", async () => {
@@ -1283,5 +1331,685 @@ describe("AI action error handling", () => {
 
     // Restore
     context.aiService.generateWritingProposal = originalGenerateWritingProposal;
+  });
+});
+
+describe("API error events", () => {
+  it("emits an error_event for unauthenticated session access", async () => {
+    const app = createApp(createMemoryAppContext());
+
+    const { result: response, events } = await captureErrorEvents(() =>
+      app.request("http://localhost/v1/me"),
+    );
+
+    assert.equal(response.status, 401);
+    const event = events.at(-1);
+    assert.equal(event?.domain, "auth");
+    assert.equal(event?.failureClass, "user");
+    assert.equal(event?.code, "unauthorized");
+    assert.equal(event?.path, "/v1/me");
+  });
+
+  it("emits an error_event for unhandled AI failures", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_ai";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const originalGenerateOutlineDraft = context.aiService.generateOutlineDraft;
+    context.aiService.generateOutlineDraft = async () => {
+      throw new Error("Provider downstream failure");
+    };
+
+    try {
+      const { result: response, events } = await captureErrorEvents(() =>
+        app.request(
+          `http://localhost/v1/documents/${document.id}/outline/generate`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-test-user-id": clerkId,
+            },
+            body: JSON.stringify({
+              topic: "Some topic",
+              idempotencyKey: "idem-error-event-ai",
+            }),
+          },
+        ),
+      );
+
+      assert.equal(response.status, 500);
+      const event = events.at(-1);
+      assert.equal(event?.type, "error_event");
+      assert.equal(event?.domain, "ai");
+      assert.equal(event?.failureClass, "system");
+      assert.equal(event?.code, "unhandled_api_error");
+      assert.equal(
+        event?.path,
+        `/v1/documents/${document.id}/outline/generate`,
+      );
+      assert.equal(event?.requestId, "local");
+      assert.equal(event?.message, "Provider downstream failure");
+      assert.equal(typeof event?.ts, "string");
+    } finally {
+      context.aiService.generateOutlineDraft = originalGenerateOutlineDraft;
+    }
+  });
+
+  it("emits an error_event for stale document saves", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_save";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const firstSave = await app.request(
+      `http://localhost/v1/documents/${document.id}/content`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          contentJson: [
+            { type: "paragraph", id: "b1", children: [{ text: "Hello" }] },
+          ],
+          baseUpdatedAt: document.updatedAt,
+        }),
+      },
+    );
+
+    assert.equal(firstSave.status, 200);
+
+    const { result: staleSaveResponse, events } = await captureErrorEvents(() =>
+      app.request(`http://localhost/v1/documents/${document.id}/content`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          contentJson: [
+            { type: "paragraph", id: "b1", children: [{ text: "Stale" }] },
+          ],
+          baseUpdatedAt: document.updatedAt,
+        }),
+      }),
+    );
+
+    assert.equal(staleSaveResponse.status, 409);
+    const event = events.at(-1);
+    assert.equal(event?.type, "error_event");
+    assert.equal(event?.domain, "document_save");
+    assert.equal(event?.failureClass, "user");
+    assert.equal(event?.code, "stale_document_save");
+    assert.equal(event?.path, `/v1/documents/${document.id}/content`);
+    assert.equal(event?.requestId, "local");
+    assert.equal(event?.documentId, document.id);
+    assert.equal(typeof event?.ts, "string");
+  });
+
+  it("emits an error_event for export queue unavailability", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_export";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const originalRequestDocxExport = context.services.exports.requestDocxExport;
+    context.services.exports.requestDocxExport = async () => ({
+      type: "queue_unavailable",
+      message: "Redis unavailable",
+    });
+
+    try {
+      const { result: response, events } = await captureErrorEvents(() =>
+        app.request(
+          `http://localhost/v1/documents/${document.id}/exports/docx`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-test-user-id": clerkId,
+            },
+            body: JSON.stringify({ idempotencyKey: "idem-error-event-export" }),
+          },
+        ),
+      );
+
+      assert.equal(response.status, 503);
+      const event = events.at(-1);
+      assert.equal(event?.type, "error_event");
+      assert.equal(event?.domain, "export");
+      assert.equal(event?.failureClass, "system");
+      assert.equal(event?.code, "queue_unavailable");
+      assert.equal(event?.path, `/v1/documents/${document.id}/exports/docx`);
+      assert.equal(event?.requestId, "local");
+      assert.equal(event?.documentId, document.id);
+      assert.equal(event?.message, "Export queue is temporarily unavailable");
+      assert.equal(typeof event?.ts, "string");
+    } finally {
+      context.services.exports.requestDocxExport = originalRequestDocxExport;
+    }
+  });
+
+  it("emits an error_event for export workspace mismatches", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const ownerClerkId = "user_error_event_export_owner";
+    const intruderClerkId = "user_error_event_export_intruder";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: ownerClerkId }),
+      ),
+    });
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: intruderClerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": ownerClerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const { result: response, events } = await captureErrorEvents(() =>
+      app.request(`http://localhost/v1/documents/${document.id}/exports/docx`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": intruderClerkId,
+        },
+        body: JSON.stringify({
+          idempotencyKey: "idem-error-event-export-forbidden",
+        }),
+      }),
+    );
+
+    assert.equal(response.status, 403);
+    const event = events.at(-1);
+    assert.equal(event?.domain, "export");
+    assert.equal(event?.failureClass, "user");
+    assert.equal(event?.code, "workspace_mismatch");
+    assert.equal(event?.documentId, document.id);
+  });
+
+  it("emits an error_event for retry queue unavailability", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_export_retry";
+    const exportId = "exp-error-event-retry";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const originalRetryExport = context.services.exports.retryExport;
+    context.services.exports.retryExport = async () => ({
+      type: "queue_unavailable",
+      message: "Redis unavailable",
+    });
+
+    try {
+      const { result: response, events } = await captureErrorEvents(() =>
+        app.request(`http://localhost/v1/exports/${exportId}/retry`, {
+          method: "POST",
+          headers: {
+            "x-test-user-id": clerkId,
+          },
+        }),
+      );
+
+      assert.equal(response.status, 503);
+      const event = events.at(-1);
+      assert.equal(event?.domain, "export");
+      assert.equal(event?.failureClass, "system");
+      assert.equal(event?.code, "queue_unavailable");
+      assert.equal(event?.exportId, exportId);
+      assert.equal(event?.message, "Export queue is temporarily unavailable");
+    } finally {
+      context.services.exports.retryExport = originalRetryExport;
+    }
+  });
+
+  it("emits an error_event when a ready export file cannot be read", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_export_download";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const meRes = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": clerkId },
+    });
+    const { user } = await meRes.json();
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const post = await app.request(
+      `http://localhost/v1/documents/${document.id}/exports/docx`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-error-event-download" }),
+      },
+    );
+    const { export: exp } = await post.json();
+
+    const mem = context.repository as MemoryRepository;
+    const row = mem.state.exports.find((item) => item.id === exp.id);
+    assert.ok(row);
+    row.storageKey = createStorageKey("exports", user.id, `${exp.id}.docx`);
+    row.status = "ready";
+    row.contentType =
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    const { result: response, events } = await captureErrorEvents(() =>
+      app.request(`http://localhost/v1/exports/${exp.id}/download`, {
+        headers: {
+          "x-test-user-id": clerkId,
+        },
+      }),
+    );
+
+    assert.equal(response.status, 404);
+    const event = events.at(-1);
+    assert.equal(event?.domain, "export");
+    assert.equal(event?.failureClass, "system");
+    assert.equal(event?.code, "export_file_read_failed");
+    assert.equal(event?.exportId, exp.id);
+  });
+
+  it("emits an error_event when export quota is exhausted", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_error_event_export_quota";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const meRes = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": clerkId },
+    });
+    const { user } = await meRes.json();
+    const period = getCurrentBillingPeriod();
+
+    const mem = context.repository as MemoryRepository;
+    mem.state.monthlyUsageCounters.push({
+      id: randomUUID(),
+      userId: user.id,
+      period,
+      aiActionsUsed: 0,
+      sourceUploadsUsed: 0,
+      exportsUsed: PLAN_EXPORTS_LIMIT,
+      storageUsedBytes: 0,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Quota", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const { result: response, events } = await captureErrorEvents(() =>
+      app.request(`http://localhost/v1/documents/${document.id}/exports/docx`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-error-event-quota" }),
+      }),
+    );
+
+    assert.equal(response.status, 429);
+    const event = events.at(-1);
+    assert.equal(event?.domain, "export");
+    assert.equal(event?.failureClass, "user");
+    assert.equal(event?.code, "export_quota_exceeded");
+    assert.equal(event?.documentId, document.id);
+  });
+});
+
+describe("DOCX exports API", () => {
+  it("queues a DOCX export with preflight metadata and supports idempotent replay", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_export_queue_1";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "My Paper", type: "general_paper" }),
+    });
+    const { document: doc } = await createRes.json();
+
+    const post1 = await app.request(
+      `http://localhost/v1/documents/${doc.id}/exports/docx`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-exp-1" }),
+      },
+    );
+
+    assert.equal(post1.status, 200);
+    const j1 = await post1.json();
+    assert.equal(j1.export.status, "queued");
+    assert.equal(j1.isReplay, false);
+    assert.ok(Array.isArray(j1.preflightWarnings));
+
+    const post2 = await app.request(
+      `http://localhost/v1/documents/${doc.id}/exports/docx`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-exp-1" }),
+      },
+    );
+
+    assert.equal(post2.status, 200);
+    const j2 = await post2.json();
+    assert.equal(j2.isReplay, true);
+    assert.equal(j2.export.id, j1.export.id);
+  });
+
+  it("returns export file download when status is ready and storage exists", async () => {
+    const prevDir = process.env.AQSHARA_EXPORTS_DIR;
+    const dir = mkdtempSync(join(tmpdir(), "aqshara-export-test-"));
+    process.env.AQSHARA_EXPORTS_DIR = dir;
+
+    try {
+      const context = createMemoryAppContext();
+      const app = createApp(context);
+      const clerkId = "user_export_dl_1";
+
+      await app.request("http://localhost/webhooks/clerk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          createClerkUserEvent("user.created", { id: clerkId }),
+        ),
+      });
+
+      const meRes = await app.request("http://localhost/v1/me", {
+        headers: { "x-test-user-id": clerkId },
+      });
+      const { user } = await meRes.json();
+
+      const createRes = await app.request("http://localhost/v1/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ title: "DL Test", type: "general_paper" }),
+      });
+      const { document: doc } = await createRes.json();
+
+      const post = await app.request(
+        `http://localhost/v1/documents/${doc.id}/exports/docx`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-test-user-id": clerkId,
+          },
+          body: JSON.stringify({ idempotencyKey: "idem-dl-1" }),
+        },
+      );
+      const { export: exp } = await post.json();
+
+      const mem = context.repository as MemoryRepository;
+      const row = mem.state.exports.find((e) => e.id === exp.id);
+      assert.ok(row);
+      const key = createStorageKey("exports", user.id, `${exp.id}.docx`);
+      row.storageKey = key;
+      row.status = "ready";
+      row.contentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      await writeExportFile(key, Buffer.from("PK\x03\x04fake"));
+
+      const dl = await app.request(
+        `http://localhost/v1/exports/${exp.id}/download`,
+        {
+          headers: { "x-test-user-id": clerkId },
+        },
+      );
+
+      assert.equal(dl.status, 200);
+      const buf = Buffer.from(await dl.arrayBuffer());
+      assert.equal(buf.toString("utf8"), "PK\x03\x04fake");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      process.env.AQSHARA_EXPORTS_DIR = prevDir;
+    }
+  });
+
+  it("returns 429 when monthly export quota is exhausted", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_export_quota_1";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const meRes = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": clerkId },
+    });
+    const { user } = await meRes.json();
+    const period = getCurrentBillingPeriod();
+
+    const mem = context.repository as MemoryRepository;
+    mem.state.monthlyUsageCounters.push({
+      id: randomUUID(),
+      userId: user.id,
+      period,
+      aiActionsUsed: 0,
+      sourceUploadsUsed: 0,
+      exportsUsed: PLAN_EXPORTS_LIMIT,
+      storageUsedBytes: 0,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Quota", type: "general_paper" }),
+    });
+    const { document: doc } = await createRes.json();
+
+    const post = await app.request(
+      `http://localhost/v1/documents/${doc.id}/exports/docx`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-quota-1" }),
+      },
+    );
+
+    assert.equal(post.status, 429);
+    const body = await post.json();
+    assert.equal(body.code, "export_quota_exceeded");
+  });
+
+  it("retries a failed export and returns queued status", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_export_retry_1";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Retry", type: "general_paper" }),
+    });
+    const { document: doc } = await createRes.json();
+
+    const post = await app.request(
+      `http://localhost/v1/documents/${doc.id}/exports/docx`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ idempotencyKey: "idem-retry-1" }),
+      },
+    );
+    const { export: exp } = await post.json();
+
+    const mem = context.repository as MemoryRepository;
+    const row = mem.state.exports.find((e) => e.id === exp.id)!;
+    row.status = "failed";
+    row.errorCode = "test_failure";
+    row.errorMessage = "simulated";
+
+    const retryRes = await app.request(
+      `http://localhost/v1/exports/${exp.id}/retry`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+      },
+    );
+
+    assert.equal(retryRes.status, 200);
+    const retryBody = await retryRes.json();
+    assert.equal(retryBody.export.status, "queued");
+    assert.equal(retryBody.export.retryCount, 1);
   });
 });

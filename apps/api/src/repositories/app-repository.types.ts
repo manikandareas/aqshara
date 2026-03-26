@@ -81,6 +81,43 @@ export class StaleDocumentSaveError extends Error {
   }
 }
 
+export type PreflightWarningCode =
+  | "empty_document_title"
+  | "empty_heading"
+  | "possible_placeholder";
+
+export type PreflightWarning = {
+  code: PreflightWarningCode;
+  message: string;
+  blockId?: string;
+};
+
+export type ExportFormat = "docx";
+export type ExportStatus = "queued" | "processing" | "ready" | "failed";
+
+export type AppExport = {
+  id: string;
+  documentId: string;
+  userId: string;
+  workspaceId: string;
+  billingPeriod: string;
+  format: ExportFormat;
+  status: ExportStatus;
+  idempotencyKey: string | null;
+  bullmqJobId: string | null;
+  preflightWarnings: PreflightWarning[] | null;
+  retryCount: number;
+  storageKey: string | null;
+  contentType: string | null;
+  fileSizeBytes: number | null;
+  errorMessage: string | null;
+  errorCode: string | null;
+  processingStartedAt: string | null;
+  readyAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AppRepository = {
   getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null>;
   getWorkspaceForUser(userId: string): Promise<Workspace | null>;
@@ -100,6 +137,7 @@ export type AppRepository = {
     userId: string;
     documentId: string;
   }): Promise<AppDocument | null>;
+  getDocumentByIdUnscoped(documentId: string): Promise<AppDocument | null>;
   updateDocument(input: {
     userId: string;
     documentId: string;
@@ -167,4 +205,60 @@ export type AppRepository = {
     documentId: string;
     baseRevisionUpdatedAt: string;
   }): Promise<void>;
+
+  requestDocxExport(input: {
+    userId: string;
+    documentId: string;
+    workspaceId: string;
+    idempotencyKey: string;
+    preflightWarnings: PreflightWarning[];
+  }): Promise<
+    | { ok: true; export: AppExport; isReplay: boolean }
+    | {
+        ok: false;
+        reason:
+          | "document_not_found"
+          | "workspace_mismatch"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  >;
+
+  getExportForUser(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<AppExport | null>;
+
+  listExportsForUser(input: {
+    userId: string;
+    limit: number;
+  }): Promise<AppExport[]>;
+
+  setExportBullmqJobId(input: {
+    userId: string;
+    exportId: string;
+    bullmqJobId: string;
+  }): Promise<AppExport | null>;
+
+  retryFailedExport(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<
+    | { ok: true; export: AppExport }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  >;
+
+  markExportFailed(input: {
+    userId: string;
+    exportId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppExport | null>;
 };

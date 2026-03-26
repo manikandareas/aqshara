@@ -1,19 +1,2 @@
-export type Logger = {
-  info: (message: string) => void;
-  warn: (message: string) => void;
-  error: (message: string, error?: unknown) => void;
-};
-
-export function createLogger(scope: string): Logger {
-  return {
-    info(message) {
-      console.info(`[${scope}] ${message}`);
-    },
-    warn(message) {
-      console.warn(`[${scope}] ${message}`);
-    },
-    error(message, error) {
-      console.error(`[${scope}] ${message}`, error);
-    },
-  };
-}
+export type { Logger } from "@aqshara/observability";
+export { createLogger } from "@aqshara/observability";

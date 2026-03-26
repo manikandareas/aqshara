@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { createErrorPayload, getRequestId } from "./errors.js";
 import type { ApiEnv } from "../hono-env.js";
+import { logApiErrorEvent } from "../lib/error-events.js";
 
 export { createErrorPayload, getRequestId } from "./errors.js";
 
@@ -17,14 +18,22 @@ export function getDocumentId(c: Context) {
 export async function requireAppUser(c: Context<ApiEnv>) {
   const context = c.get("ctx");
   const clerkUserId = await context.getAuthenticatedClerkUserId(c as never);
+  const requestId = getRequestId(c);
 
   if (!clerkUserId) {
+    logApiErrorEvent({
+      domain: "auth",
+      path: c.req.path,
+      requestId,
+      code: "unauthorized",
+      failureClass: "user",
+    });
     return {
       error: c.json(
         createErrorPayload(
           "unauthorized",
           "Authentication required",
-          getRequestId(c),
+          requestId,
         ),
         401,
       ),
@@ -34,12 +43,20 @@ export async function requireAppUser(c: Context<ApiEnv>) {
   const user = await context.repository.getUserByClerkUserId(clerkUserId);
 
   if (!user) {
+    logApiErrorEvent({
+      domain: "auth",
+      path: c.req.path,
+      requestId,
+      code: "account_provisioning",
+      failureClass: "system",
+      clerkUserId,
+    });
     return {
       error: c.json(
         createErrorPayload(
           "account_provisioning",
           "Account provisioning is still pending",
-          getRequestId(c),
+          requestId,
         ),
         409,
       ),
@@ -47,12 +64,21 @@ export async function requireAppUser(c: Context<ApiEnv>) {
   }
 
   if (user.deletedAt) {
+    logApiErrorEvent({
+      domain: "auth",
+      path: c.req.path,
+      requestId,
+      code: "account_deleted",
+      failureClass: "user",
+      userId: user.id,
+      clerkUserId,
+    });
     return {
       error: c.json(
         createErrorPayload(
           "account_deleted",
           "Account access has been removed",
-          getRequestId(c),
+          requestId,
         ),
         403,
       ),
@@ -62,12 +88,21 @@ export async function requireAppUser(c: Context<ApiEnv>) {
   const workspace = await context.repository.getWorkspaceForUser(user.id);
 
   if (!workspace) {
+    logApiErrorEvent({
+      domain: "auth",
+      path: c.req.path,
+      requestId,
+      code: "account_provisioning",
+      failureClass: "system",
+      userId: user.id,
+      clerkUserId,
+    });
     return {
       error: c.json(
         createErrorPayload(
           "account_provisioning",
           "Account provisioning is still pending",
-          getRequestId(c),
+          requestId,
         ),
         409,
       ),

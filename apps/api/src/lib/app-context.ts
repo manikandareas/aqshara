@@ -19,8 +19,13 @@ import type {
   AppRepository,
   AppUser,
 } from "../repositories/app-repository.types.js";
+import { enqueueExportDocxJob } from "./export-queue.js";
 import { createApiServices, type ApiServices } from "../services/index.js";
 import type { AppUsage } from "./api-types.js";
+import {
+  PLAN_AI_ACTIONS_LIMIT,
+  PLAN_EXPORTS_LIMIT,
+} from "./plan-limits.js";
 import {
   toProvisioningIdentity,
   type ClerkProvisioningUser,
@@ -83,6 +88,12 @@ export type AppContext = {
   getUsage: (user: AppUser) => Promise<AppUsage>;
   aiService: AiService;
   services: ApiServices;
+  rateLimitStore?: {
+    increment: (
+      key: string,
+      windowMs: number,
+    ) => Promise<{ count: number; resetAt: number }>;
+  };
 };
 
 export async function backfillClerkUsers(input: {
@@ -177,7 +188,7 @@ export function createProductionAppContext(): AppContext {
 
   const getUsage = async (user: AppUser) => {
     const period = getCurrentBillingPeriod();
-    const limit = user.planCode === "free" ? 10 : 10;
+    const aiLimit = PLAN_AI_ACTIONS_LIMIT;
 
     const db = createDatabase();
     const counters = (
@@ -193,6 +204,7 @@ export function createProductionAppContext(): AppContext {
         .limit(1)
     )[0];
     const used = counters?.aiActionsUsed ?? 0;
+    const exportsUsed = counters?.exportsUsed ?? 0;
 
     const reservedRecord = (
       await db
@@ -208,14 +220,15 @@ export function createProductionAppContext(): AppContext {
     )[0];
     const reserved = reservedRecord?.aiActionsReserved ?? 0;
 
-    const remaining = Math.max(0, limit - (used + reserved));
+    const remaining = Math.max(0, aiLimit - (used + reserved));
+    const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
 
     return {
       period,
       aiActionsUsed: used,
       aiActionsReserved: reserved,
       aiActionsRemaining: remaining,
-      exportsRemaining: 3,
+      exportsRemaining,
       sourceUploadsRemaining: 0,
     };
   };
@@ -224,6 +237,7 @@ export function createProductionAppContext(): AppContext {
     repository,
     aiService,
     getUsage,
+    enqueueExportDocx: enqueueExportDocxJob,
   });
 
   return {

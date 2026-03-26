@@ -127,14 +127,34 @@ export const documentChangeProposals = pgTable("document_change_proposals", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const exportsTable = pgTable("exports", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  documentId: uuid("document_id").notNull(),
-  userId: uuid("user_id").notNull(),
-  format: varchar("format", { length: 16 }).notNull(),
-  status: varchar("status", { length: 16 }).notNull(),
-  storageKey: text("storage_key"),
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const exportsTable = pgTable(
+  "exports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    documentId: uuid("document_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    billingPeriod: varchar("billing_period", { length: 7 }).notNull(),
+    format: varchar("format", { length: 16 }).notNull(),
+    status: varchar("status", { length: 16 }).notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
+    bullmqJobId: text("bullmq_job_id"),
+    preflightWarnings: jsonb("preflight_warnings"),
+    retryCount: integer("retry_count").notNull().default(0),
+    storageKey: text("storage_key"),
+    contentType: varchar("content_type", { length: 128 }),
+    fileSizeBytes: integer("file_size_bytes"),
+    errorMessage: text("error_message"),
+    errorCode: varchar("error_code", { length: 64 }),
+    processingStartedAt: timestamp("processing_started_at"),
+    readyAt: timestamp("ready_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userIdempotencyIdx: uniqueIndex("exports_user_id_idempotency_key_idx").on(
+      table.userId,
+      table.idempotencyKey,
+    ),
+  }),
+);

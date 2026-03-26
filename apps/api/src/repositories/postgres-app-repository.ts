@@ -13,12 +13,19 @@ import {
   monthlyUsageCounters,
   aiActionsReserved,
   documentChangeProposals,
+  exportsTable,
 } from "@aqshara/database";
-import { and, desc, eq, isNull, isNotNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull, isNotNull, or } from "drizzle-orm";
 import { getCurrentBillingPeriod } from "./billing-period.js";
+import {
+  PLAN_AI_ACTIONS_LIMIT,
+  PLAN_EXPORTS_LIMIT,
+  MAX_IN_FLIGHT_EXPORTS_PER_USER,
+} from "../lib/plan-limits.js";
 import type {
   AppDocument,
   AppDocumentChangeProposal,
+  AppExport,
   AppRepository,
   AppUser,
   AuthIdentity,
@@ -26,6 +33,7 @@ import type {
   DocumentPatch,
   DocumentType,
   PlanCode,
+  PreflightWarning,
   Workspace,
 } from "./app-repository.types.js";
 import {
@@ -38,6 +46,31 @@ function toIsoString(value: Date | string | null): string | null {
   }
 
   return value instanceof Date ? value.toISOString() : value;
+}
+
+function toExportRecord(row: typeof exportsTable.$inferSelect): AppExport {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    userId: row.userId,
+    workspaceId: row.workspaceId,
+    billingPeriod: row.billingPeriod,
+    format: row.format as AppExport["format"],
+    status: row.status as AppExport["status"],
+    idempotencyKey: row.idempotencyKey,
+    bullmqJobId: row.bullmqJobId,
+    preflightWarnings: (row.preflightWarnings as PreflightWarning[] | null) ?? null,
+    retryCount: row.retryCount,
+    storageKey: row.storageKey,
+    contentType: row.contentType,
+    fileSizeBytes: row.fileSizeBytes,
+    errorMessage: row.errorMessage,
+    errorCode: row.errorCode,
+    processingStartedAt: toIsoString(row.processingStartedAt),
+    readyAt: toIsoString(row.readyAt),
+    createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
+    updatedAt: toIsoString(row.updatedAt) ?? new Date().toISOString(),
+  };
 }
 
 function toDocumentRecord(row: typeof documents.$inferSelect): AppDocument {
@@ -317,6 +350,16 @@ export class PostgresAppRepository implements AppRepository {
     return row[0] ? toDocumentRecord(row[0].document) : null;
   }
 
+  async getDocumentByIdUnscoped(documentId: string): Promise<AppDocument | null> {
+    const row = await this.db
+      .select()
+      .from(documents)
+      .where(eq(documents.id, documentId))
+      .limit(1);
+
+    return row[0] ? toDocumentRecord(row[0]) : null;
+  }
+
   async updateDocument(input: {
     userId: string;
     documentId: string;
@@ -470,8 +513,6 @@ export class PostgresAppRepository implements AppRepository {
       }
     }
 
-    const limit = 10;
-
     const counters = (
       await this.db
         .select()
@@ -502,7 +543,7 @@ export class PostgresAppRepository implements AppRepository {
 
     const reserved = reservedRecord?.aiActionsReserved ?? 0;
 
-    if (used + reserved >= limit) {
+    if (used + reserved >= PLAN_AI_ACTIONS_LIMIT) {
       return { allowed: false, reason: "quota_exceeded" };
     }
 
@@ -796,6 +837,302 @@ export class PostgresAppRepository implements AppRepository {
       createdAt: document.createdAt.toISOString(),
       updatedAt: document.updatedAt.toISOString(),
     };
+  }
+
+  private async countInFlightExports(
+    userId: string,
+    period: string,
+  ): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(exportsTable)
+      .where(
+        and(
+          eq(exportsTable.userId, userId),
+          eq(exportsTable.billingPeriod, period),
+          or(
+            eq(exportsTable.status, "queued"),
+            eq(exportsTable.status, "processing"),
+          ),
+        ),
+      );
+    return Number(row?.n ?? 0);
+  }
+
+  private async getExportsUsed(userId: string, period: string): Promise<number> {
+    const counters = (
+      await this.db
+        .select()
+        .from(monthlyUsageCounters)
+        .where(
+          and(
+            eq(monthlyUsageCounters.userId, userId),
+            eq(monthlyUsageCounters.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return counters?.exportsUsed ?? 0;
+  }
+
+  async requestDocxExport(input: {
+    userId: string;
+    documentId: string;
+    workspaceId: string;
+    idempotencyKey: string;
+    preflightWarnings: PreflightWarning[];
+  }): Promise<
+    | { ok: true; export: AppExport; isReplay: boolean }
+    | {
+        ok: false;
+        reason:
+          | "document_not_found"
+          | "workspace_mismatch"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const document = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+
+    if (!document) {
+      return { ok: false, reason: "document_not_found" };
+    }
+
+    if (document.workspaceId !== input.workspaceId) {
+      return { ok: false, reason: "workspace_mismatch" };
+    }
+
+    const existing = (
+      await this.db
+        .select()
+        .from(exportsTable)
+        .where(
+          and(
+            eq(exportsTable.userId, input.userId),
+            eq(exportsTable.idempotencyKey, input.idempotencyKey),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    if (existing) {
+      return {
+        ok: true,
+        export: toExportRecord(existing),
+        isReplay: true,
+      };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if ((await this.countInFlightExports(input.userId, period)) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if ((await this.getExportsUsed(input.userId, period)) >= PLAN_EXPORTS_LIMIT) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    try {
+      const [row] = await this.db
+        .insert(exportsTable)
+        .values({
+          documentId: input.documentId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          billingPeriod: period,
+          format: "docx",
+          status: "queued",
+          idempotencyKey: input.idempotencyKey,
+          preflightWarnings: input.preflightWarnings,
+        })
+        .returning();
+
+      if (!row) {
+        throw new Error("Export insert failed");
+      }
+
+      return { ok: true, export: toExportRecord(row), isReplay: false };
+    } catch (error) {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof (error as { code: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : null;
+
+      if (code === "23505") {
+        const replay = (
+          await this.db
+            .select()
+            .from(exportsTable)
+            .where(
+              and(
+                eq(exportsTable.userId, input.userId),
+                eq(exportsTable.idempotencyKey, input.idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (replay) {
+          return {
+            ok: true,
+            export: toExportRecord(replay),
+            isReplay: true,
+          };
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  async getExportForUser(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<AppExport | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(exportsTable)
+        .where(
+          and(
+            eq(exportsTable.id, input.exportId),
+            eq(exportsTable.userId, input.userId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return row ? toExportRecord(row) : null;
+  }
+
+  async listExportsForUser(input: {
+    userId: string;
+    limit: number;
+  }): Promise<AppExport[]> {
+    const rows = await this.db
+      .select()
+      .from(exportsTable)
+      .where(eq(exportsTable.userId, input.userId))
+      .orderBy(desc(exportsTable.createdAt))
+      .limit(input.limit);
+
+    return rows.map(toExportRecord);
+  }
+
+  async setExportBullmqJobId(input: {
+    userId: string;
+    exportId: string;
+    bullmqJobId: string;
+  }): Promise<AppExport | null> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(exportsTable)
+      .set({ bullmqJobId: input.bullmqJobId, updatedAt: now })
+      .where(
+        and(
+          eq(exportsTable.id, input.exportId),
+          eq(exportsTable.userId, input.userId),
+        ),
+      )
+      .returning();
+
+    return row ? toExportRecord(row) : null;
+  }
+
+  async markExportFailed(input: {
+    userId: string;
+    exportId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppExport | null> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(exportsTable)
+      .set({
+        status: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(exportsTable.id, input.exportId),
+          eq(exportsTable.userId, input.userId),
+          eq(exportsTable.status, "queued"),
+        ),
+      )
+      .returning();
+
+    return row ? toExportRecord(row) : null;
+  }
+
+  async retryFailedExport(input: {
+    userId: string;
+    exportId: string;
+  }): Promise<
+    | { ok: true; export: AppExport }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const current = await this.getExportForUser({
+      userId: input.userId,
+      exportId: input.exportId,
+    });
+
+    if (!current) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (current.status !== "failed") {
+      return { ok: false, reason: "not_failed" };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if ((await this.countInFlightExports(input.userId, period)) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if ((await this.getExportsUsed(input.userId, period)) >= PLAN_EXPORTS_LIMIT) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    const now = new Date();
+    const [row] = await this.db
+      .update(exportsTable)
+      .set({
+        status: "queued",
+        bullmqJobId: null,
+        errorMessage: null,
+        errorCode: null,
+        processingStartedAt: null,
+        retryCount: current.retryCount + 1,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(exportsTable.id, input.exportId),
+          eq(exportsTable.userId, input.userId),
+        ),
+      )
+      .returning();
+
+    if (!row) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    return { ok: true, export: toExportRecord(row) };
   }
 
   async invalidateStaleProposals(input: {

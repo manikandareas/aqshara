@@ -79,4 +79,24 @@ describe("database schema foundations", () => {
     assert.ok("createdAt" in proposalColumns);
     assert.ok("updatedAt" in proposalColumns);
   });
+
+  it("persists async export lifecycle metadata", () => {
+    const table = database.exportsTable;
+    assert.ok(table, "expected exportsTable export");
+    const cols = getTableColumns(table);
+
+    assert.ok("workspaceId" in cols);
+    assert.ok("billingPeriod" in cols);
+    assert.ok("idempotencyKey" in cols);
+    assert.ok("bullmqJobId" in cols);
+    assert.ok("preflightWarnings" in cols);
+    assert.ok("retryCount" in cols);
+    assert.ok("contentType" in cols);
+    assert.ok("fileSizeBytes" in cols);
+    assert.ok("errorCode" in cols);
+    assert.ok("processingStartedAt" in cols);
+    assert.ok("readyAt" in cols);
+
+    assertUniqueIndex(table as TableLike, ["user_id", "idempotency_key"]);
+  });
 });
