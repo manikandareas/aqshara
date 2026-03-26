@@ -148,7 +148,7 @@ Wave 4: contract regeneration and backend closeout
 > Implementation + Test = ONE task. Never separate.
 > EVERY task MUST have: Agent Profile + Parallelization + QA Scenarios.
 
-- [ ] 1. Replace the minimal canonical document model with PlateJS-compatible backend contracts
+- [x] 1. Replace the minimal canonical document model with PlateJS-compatible backend contracts
 
   **What to do**: Refactor `packages/documents/src/index.ts` so the canonical persisted document model becomes PlateJS/Slate-compatible JSON instead of the current hand-rolled `{ version, nodes }` shape. Model root value as a Slate element array, preserve Plate-managed node IDs in persisted blocks, and keep Sprint 2 backend transforms limited to heading/paragraph/list structures that can be produced by templates, outlines, and AI proposals without inventing a separate editor model. Introduce additive exported types/helpers for `TemplateCode`, template builders, `OutlineDraft`, `DocumentChangeProposal`, and deterministic transforms that operate on Slate JSON (`createTemplateDocument`, `outlineDraftToDocumentValue`, `applyDocumentChangeProposal`). Lock Sprint 2 AI to whole-block targeting via Plate node IDs; do not encode path-based assumptions or arbitrary character-range editing semantics. Update backend consumers that import `DocumentAst` or `toPlainText` so they use the new canonical type from `packages/documents`.
   **Must NOT do**: Do not keep the current custom AST as a parallel source of truth. Do not add inline formatting scope beyond what Plate JSON already represents. Do not move prompt/orchestration logic into `packages/documents`. Do not add template storage to the database.
@@ -193,7 +193,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(documents): add sprint 2 backend contracts` | Files: `packages/documents/src/index.ts`, `packages/documents/src/*.test.ts`, optional package script/config files only if required
 
-- [ ] 2. Add database foundations for quota reservation and persisted AI proposals
+- [x] 2. Add database foundations for quota reservation and persisted AI proposals
 
   **What to do**: Extend `packages/database/src/schema.ts` and corresponding migrations so Sprint 2 backend accounting becomes safe under concurrency and retries. Keep `usage_events` as the canonical usage ledger, but add the fields needed for AI generation lifecycle tracking: billing period, feature key, status (`reserved`, `succeeded`, `released`, `failed`), idempotency key, request hash, and completion/release timestamps. Add a unique `(user_id, period)` constraint to `monthly_usage_counters`, add `ai_actions_reserved`, and create a new `document_change_proposals` table that stores persisted preview proposals (`proposal_json`, `action_type`, `status`, `document_id`, `user_id`, `base_updated_at`, `target_block_ids`, timestamps). Default plan limits stay code-owned; the database change is only for safe accounting and proposal persistence.
   **Must NOT do**: Do not introduce billing/subscription tables, generalized payment models, or worker job tables. Do not create a separate template table. Do not add source-upload/export schema in this Sprint 2 plan.
@@ -236,7 +236,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(database): add quota and proposal persistence` | Files: `packages/database/src/schema.ts`, `packages/database/drizzle/*`, optional DB tests if present
 
-- [ ] 3. Extend repository and app-context services for bootstrap, reservations, and proposal lifecycle
+- [x] 3. Extend repository and app-context services for bootstrap, reservations, and proposal lifecycle
 
   **What to do**: Refactor `apps/api/src/lib/app-context.ts` so the app layer exposes explicit backend services instead of today’s stubbed `getUsage()` shortcut. Add repository methods for counting active/archived documents, reserving/finalizing/releasing AI actions, creating/reading/updating `document_change_proposals`, creating documents from templates, and invalidating stale proposals. Keep route handlers thin by moving period calculation, request-hash comparison, duplicate-idempotency replay, and plan-limit math into repository/service helpers. Update the in-memory test harness in `apps/api/src/test-support/memory-app-context.ts` so tests mirror the new semantics exactly, including reserved counters and proposal status transitions.
   **Must NOT do**: Do not leak SQL or plan-limit logic into route handlers. Do not keep the old hardcoded `getUsage()` numbers after this task. Do not make app-context depend on web-specific onboarding state.
@@ -278,7 +278,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `refactor(api): extend sprint 2 repository services` | Files: `apps/api/src/lib/app-context.ts`, `apps/api/src/test-support/memory-app-context.ts`, related API tests only
 
-- [ ] 4. Add a synchronous AI provider and prompt layer for Sprint 2 actions
+- [x] 4. Add a synchronous AI provider and prompt layer for Sprint 2 actions
 
   **What to do**: Create an `apps/api/src/lib/ai/` layer that isolates provider invocation from route handlers and repositories. Define two provider-facing entry points only: `generateOutlineDraft()` and `generateWritingProposal()`. Store prompt specs per action (`outline`, `continue`, `rewrite`, `paraphrase`, `expand`, `simplify`) as explicit typed builders, not a single multi-purpose prompt. Normalize every provider response into backend contracts from Task 1 before it reaches the route layer. Tests must run against a deterministic fake provider so no live model access is required.
   **Must NOT do**: Do not add streaming, SSE, chat history, tool-calling loops, or worker dispatch. Do not let raw provider payloads leak into route responses.
@@ -320,7 +320,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add ai provider and prompt layer` | Files: `apps/api/src/lib/ai/*`, related API tests only
 
-- [ ] 5. Extend `/v1/me` into the Sprint 2 backend bootstrap read path
+- [x] 5. Extend `/v1/me` into the Sprint 2 backend bootstrap read path
 
   **What to do**: Keep `/v1/me` as the single authenticated bootstrap read path, but extend its response so backend consumers can derive onboarding and quota state without extra persistence. Add `documentStats: { activeCount, archivedCount }`, `onboarding: { shouldShow: boolean, reason: 'zero_documents' | 'has_documents' }`, and richer usage metadata for AI actions (`period`, `aiActionsUsed`, `aiActionsReserved`, `aiActionsRemaining`) while preserving current plan summary semantics. The route must remain gated by `requireAppUser()` and compute `shouldShow` strictly from active+archived document counts, not a new onboarding table.
   **Must NOT do**: Do not add a separate `/v1/onboarding` persistence route. Do not remove existing auth/provisioning/deleted-account semantics from `/v1/me`.
@@ -362,7 +362,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add onboarding bootstrap read paths` | Files: `apps/api/src/app.ts`, `apps/api/src/app.test.ts`, `packages/api-client/src/generated/types.ts` via regeneration only
 
-- [ ] 6. Add template catalog and bootstrap document-creation routes
+- [x] 6. Add template catalog and bootstrap document-creation routes
 
   **What to do**: Add two backend routes in `apps/api/src/app.ts`: `GET /v1/templates` and `POST /v1/documents/bootstrap`. `GET /v1/templates` must surface the global, code-owned catalog for `blank`, `general_paper`, `proposal`, and `skripsi`, using `packages/documents` as the source of the three structured templates and synthesizing the blank option from `createEmptyDocument()`. `POST /v1/documents/bootstrap` must create a new document either blank or template-backed, set `contentJson` from the chosen builder, compute `plainText` via `toPlainText`, and return the created document in the existing document envelope style. Keep the original `POST /v1/documents` route intact; this new route exists specifically for Sprint 2 onboarding/template bootstrap.
   **Must NOT do**: Do not persist templates independently. Do not make bootstrap creation depend on outline generation. Do not force the worker or AI provider into this route.
@@ -405,7 +405,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add template bootstrap routes` | Files: `apps/api/src/app.ts`, `apps/api/src/lib/app-context.ts`, `apps/api/src/app.test.ts`, regenerated spec/client files only
 
-- [ ] 7. Add outline generation and outline-apply endpoints
+- [x] 7. Add outline generation and outline-apply endpoints
 
   **What to do**: Add two synchronous routes for the document outline flow: `POST /v1/documents/{documentId}/outline/generate` and `POST /v1/documents/{documentId}/outline/apply`. The generate route must require `topic` and `idempotencyKey`, reserve one AI action credit before provider execution, call the Task-4 outline service, and return an editable `OutlineDraft` plus replay-safe usage metadata. The apply route must accept an edited `OutlineDraft`, `baseUpdatedAt`, and optional `templateCode`, then replace the target document’s `contentJson` with canonical Slate JSON produced by `outlineDraftToDocumentValue`; it must not consume additional quota. If the document is newer than `baseUpdatedAt`, return 409 `stale_outline_apply` and leave both document and quota state untouched.
   **Must NOT do**: Do not persist outline proposals to the proposal table. Do not auto-apply generated outlines. Do not append outlines blindly onto stale documents.
@@ -447,7 +447,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add outline generation flow` | Files: `apps/api/src/app.ts`, `apps/api/src/lib/ai/*`, `apps/api/src/lib/app-context.ts`, `apps/api/src/app.test.ts`, regenerated spec/client files only
 
-- [ ] 8. Add writing-assistant proposal generation routes
+- [x] 8. Add writing-assistant proposal generation routes
 
   **What to do**: Add `POST /v1/documents/{documentId}/ai/proposals` as the single generation endpoint for Sprint 2 writing actions. It must accept `{ action, targetBlockIds, idempotencyKey }`, validate the action-specific target rules (`continue` = exactly one trailing block target; `rewrite`/`paraphrase`/`expand`/`simplify` = one or more contiguous block IDs), reserve quota before the provider call, normalize the output into a `DocumentChangeProposal`, persist that proposal in `document_change_proposals`, and return the proposal plus `allowedApplyModes`. Duplicate replays with the same request hash must return the original pending proposal without double-charging. New requests with reused `idempotencyKey` but different payload hashes must fail deterministically with a 409 duplicate-request error.
   **Must NOT do**: Do not auto-apply the proposal. Do not support free-form character ranges, inline spans, or chat-style prompts. Do not create one route per AI action.
@@ -490,7 +490,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add writing proposal generation` | Files: `apps/api/src/app.ts`, `apps/api/src/lib/ai/*`, `apps/api/src/lib/app-context.ts`, `apps/api/src/app.test.ts`, regenerated spec/client files only
 
-- [ ] 9. Add proposal apply and dismiss routes with stale-base validation
+- [x] 9. Add proposal apply and dismiss routes with stale-base validation
 
   **What to do**: Add `POST /v1/ai/proposals/{proposalId}/apply` and `POST /v1/ai/proposals/{proposalId}/dismiss`. Apply must load the persisted proposal, ensure it belongs to the authenticated user, require `baseUpdatedAt` plus `mode` (`replace` or `insert_below`), compare both the stored proposal base and live document `updatedAt`, and only then write the new canonical `contentJson` + `plainText` via the repository save path. On success, mark the proposal `applied`; on stale mismatch, mark it `invalidated` and return 409 `stale_ai_proposal`; on second apply of a terminal proposal, return a deterministic 409 terminal-state error. Dismiss must be idempotent: first call marks `dismissed`, later calls return 200 with the already-dismissed state and no document changes.
   **Must NOT do**: Do not charge quota on apply or dismiss. Do not mutate documents for dismissed, invalidated, or already-applied proposals. Do not bypass the existing canonical save path.
@@ -533,7 +533,7 @@ Wave 4: contract regeneration and backend closeout
 
   **Commit**: YES | Message: `feat(api): add proposal apply lifecycle` | Files: `apps/api/src/app.ts`, `apps/api/src/lib/app-context.ts`, `apps/api/src/app.test.ts`, regenerated spec/client files only
 
-- [ ] 10. Regenerate contracts and close Sprint 2 backend with regression and worker-boundary verification
+- [x] 10. Regenerate contracts and close Sprint 2 backend with regression and worker-boundary verification
 
   **What to do**: Finish the backend slice by regenerating OpenAPI/client artifacts, consolidating API tests, and proving the Sprint 2 backend changes stay within the agreed boundaries. Run the full backend and root verification suite, add/adjust focused tests if any route/schema drift remains, and capture a worker-boundary check that confirms no interactive AI queue was introduced. If `apps/worker` or `packages/queue` needed incidental edits for build/type safety, keep them strictly non-functional and document them explicitly in the commit summary.
   **Must NOT do**: Do not use this task to sneak in new features, worker queues, or UI-related API revisions. Do not leave generated client/spec drift unresolved.

@@ -1,8 +1,15 @@
-import { toPlainText } from "@aqshara/documents";
+import {
+  applyDocumentChangeProposal,
+  createTemplateDocument,
+  outlineDraftToDocumentValue,
+  toPlainText,
+} from "@aqshara/documents";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { Scalar } from "@scalar/hono-api-reference";
 import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
+import type { OutlineDraft } from "@aqshara/documents";
 import { swaggerUI } from "@hono/swagger-ui";
+
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { apiInfo } from "@aqshara/api-spec";
 import { getApiBaseUrl } from "@aqshara/config";
@@ -37,6 +44,9 @@ const WorkspaceSchema = z.object({
 });
 
 const UsageSchema = z.object({
+  period: z.string(),
+  aiActionsUsed: z.number(),
+  aiActionsReserved: z.number(),
   aiActionsRemaining: z.number(),
   exportsRemaining: z.number(),
   sourceUploadsRemaining: z.number(),
@@ -47,26 +57,33 @@ const PlanSummarySchema = z.object({
   label: z.literal("Free"),
 });
 
+const TTextSchema = z.object({ text: z.string() });
 const DocumentNodeSchema = z.union([
   z.object({
     type: z.literal("heading"),
+    id: z.string(),
     level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    text: z.string(),
+    children: z.array(TTextSchema),
   }),
   z.object({
     type: z.literal("paragraph"),
-    text: z.string(),
+    id: z.string(),
+    children: z.array(TTextSchema),
   }),
   z.object({
-    type: z.literal("bullet_list"),
-    items: z.array(z.string()),
+    type: z.literal("bullet-list"),
+    id: z.string(),
+    children: z.array(
+      z.object({
+        type: z.literal("list-item"),
+        id: z.string(),
+        children: z.array(TTextSchema),
+      }),
+    ),
   }),
 ]);
 
-const DocumentAstSchema = z.object({
-  version: z.literal(1),
-  nodes: z.array(DocumentNodeSchema),
-});
+const DocumentAstSchema = z.array(DocumentNodeSchema);
 
 const DocumentSchema = z.object({
   id: z.string(),
@@ -145,6 +162,14 @@ const meRoute = createRoute({
             workspace: WorkspaceSchema,
             plan: PlanSummarySchema,
             usage: UsageSchema,
+            documentStats: z.object({
+              activeCount: z.number(),
+              archivedCount: z.number(),
+            }),
+            onboarding: z.object({
+              shouldShow: z.boolean(),
+              reason: z.enum(["zero_documents", "has_documents"]),
+            }),
           }),
         },
       },
@@ -591,6 +616,329 @@ async function requireAppUser(
   };
 }
 
+const OutlineDraftNodeSchema = z.union([
+  z.object({
+    type: z.literal("heading"),
+    level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    text: z.string(),
+  }),
+  z.object({ type: z.literal("paragraph"), text: z.string() }),
+  z.object({ type: z.literal("bullet_list"), items: z.array(z.string()) }),
+]);
+
+const OutlineDraftSchema = z.object({
+  title: z.string(),
+  nodes: z.array(OutlineDraftNodeSchema),
+});
+
+const getTemplatesRoute = createRoute({
+  method: "get",
+  path: "/v1/templates",
+  tags: ["templates"],
+  summary: "List available document templates",
+  responses: {
+    200: {
+      description: "Available templates",
+      content: {
+        "application/json": {
+          schema: z.object({ templates: z.array(z.string()) }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const bootstrapDocumentRoute = createRoute({
+  method: "post",
+  path: "/v1/documents/bootstrap",
+  tags: ["documents"],
+  summary: "Create a new document from a template or blank",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            title: z.string().min(1),
+            type: z.enum(["general_paper", "proposal", "skripsi"]),
+            templateCode: z.enum([
+              "blank",
+              "general_paper",
+              "proposal",
+              "skripsi",
+            ]),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Created document",
+      content: {
+        "application/json": { schema: z.object({ document: DocumentSchema }) },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const generateOutlineRoute = createRoute({
+  method: "post",
+  path: "/v1/documents/{documentId}/outline/generate",
+  tags: ["documents"],
+  summary: "Generate an outline draft",
+  request: {
+    params: documentParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            topic: z.string().min(1),
+            idempotencyKey: z.string().min(1),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Generated outline",
+      content: {
+        "application/json": {
+          schema: z.object({
+            outline: OutlineDraftSchema,
+            usage: z.object({}),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    409: {
+      description: "Quota exceeded",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const applyOutlineRoute = createRoute({
+  method: "post",
+  path: "/v1/documents/{documentId}/outline/apply",
+  tags: ["documents"],
+  summary: "Apply an outline draft",
+  request: {
+    params: documentParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            outline: OutlineDraftSchema,
+            baseUpdatedAt: z.string().datetime(),
+            templateCode: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Applied outline",
+      content: {
+        "application/json": { schema: z.object({ document: DocumentSchema }) },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    409: {
+      description: "Stale document",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const DocumentChangeProposalSchema = z.object({
+  id: z.string(),
+  targetBlockIds: z.array(z.string()),
+  action: z.enum(["replace", "insert_below"]),
+  nodes: z.array(DocumentNodeSchema),
+});
+
+const ProposalSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  userId: z.string(),
+  proposalJson: DocumentChangeProposalSchema,
+  actionType: z.enum(["replace", "insert_below"]),
+  status: z.enum([
+    "pending",
+    "applied",
+    "dismissed",
+    "invalidated",
+    "previewed",
+  ]),
+  baseUpdatedAt: z.string(),
+  targetBlockIds: z.array(z.string()),
+  appliedAt: z.string().nullable(),
+  dismissedAt: z.string().nullable(),
+  invalidatedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const generateProposalRoute = createRoute({
+  method: "post",
+  path: "/v1/documents/{documentId}/ai/proposals",
+  tags: ["documents"],
+  summary: "Generate a writing proposal",
+  request: {
+    params: documentParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            action: z.enum([
+              "continue",
+              "rewrite",
+              "paraphrase",
+              "expand",
+              "simplify",
+            ]),
+            targetBlockIds: z.array(z.string()),
+            idempotencyKey: z.string().min(1),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Generated proposal",
+      content: {
+        "application/json": {
+          schema: z.object({
+            proposal: ProposalSchema,
+            allowedApplyModes: z.array(z.string()),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    409: {
+      description: "Quota exceeded or duplicate",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    400: {
+      description: "Bad request",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const applyProposalRoute = createRoute({
+  method: "post",
+  path: "/v1/ai/proposals/{proposalId}/apply",
+  tags: ["proposals"],
+  summary: "Apply a document change proposal",
+  request: {
+    params: z.object({ proposalId: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            baseUpdatedAt: z.string().datetime(),
+            mode: z.enum(["replace", "insert_below"]),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Applied proposal",
+      content: {
+        "application/json": {
+          schema: z.object({
+            document: DocumentSchema,
+            proposal: ProposalSchema,
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    409: {
+      description: "Conflict",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
+const dismissProposalRoute = createRoute({
+  method: "post",
+  path: "/v1/ai/proposals/{proposalId}/dismiss",
+  tags: ["proposals"],
+  summary: "Dismiss a document change proposal",
+  request: {
+    params: z.object({ proposalId: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "Dismissed proposal",
+      content: {
+        "application/json": {
+          schema: z.object({
+            proposal: ProposalSchema,
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
 export function createApp(context: AppContext) {
   const app = new OpenAPIHono();
 
@@ -661,6 +1009,15 @@ export function createApp(context: AppContext) {
       return result.error;
     }
 
+    const [usage, activeCount, archivedCount] = await Promise.all([
+      context.getUsage(result.bootstrap.user),
+      context.repository.countActiveDocuments(result.bootstrap.user.id),
+      context.repository.countArchivedDocuments(result.bootstrap.user.id),
+    ]);
+
+    const totalDocuments = activeCount + archivedCount;
+    const hasDocuments = totalDocuments > 0;
+
     return c.json({
       user: result.bootstrap.user,
       workspace: result.bootstrap.workspace,
@@ -668,7 +1025,15 @@ export function createApp(context: AppContext) {
         code: result.bootstrap.user.planCode,
         label: "Free",
       },
-      usage: context.getUsage(result.bootstrap.user),
+      usage,
+      documentStats: {
+        activeCount,
+        archivedCount,
+      },
+      onboarding: {
+        shouldShow: !hasDocuments,
+        reason: hasDocuments ? "has_documents" : "zero_documents",
+      },
     });
   }) as never);
 
@@ -887,6 +1252,476 @@ export function createApp(context: AppContext) {
     }
 
     return c.body(null, 204);
+  }) as never);
+
+  app.openapi(getTemplatesRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+    return c.json({
+      templates: ["blank", "general_paper", "proposal", "skripsi"],
+    });
+  }) as never);
+
+  app.openapi(bootstrapDocumentRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+    const body = (await c.req.json()) as {
+      title: string;
+      type: DocumentType;
+      templateCode: "blank" | "general_paper" | "proposal" | "skripsi";
+    };
+
+    const document = await context.repository.createDocument({
+      userId: result.bootstrap.user.id,
+      title: body.title,
+      type: body.type,
+    });
+
+    const contentJson = createTemplateDocument(body.templateCode);
+    const updatedDocument = await context.repository.updateDocumentContent({
+      userId: result.bootstrap.user.id,
+      documentId: document.id,
+      contentJson,
+      plainText: toPlainText(contentJson),
+      baseUpdatedAt: document.updatedAt,
+    });
+
+    return c.json({ document: updatedDocument! }, 201);
+  }) as never);
+
+  app.openapi(generateOutlineRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+    const documentId = getDocumentId(c);
+    const body = (await c.req.json()) as {
+      topic: string;
+      idempotencyKey: string;
+    };
+
+    const document = await context.repository.getDocumentById({
+      userId: result.bootstrap.user.id,
+      documentId,
+    });
+    if (!document)
+      return c.json(
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
+        404,
+      );
+
+    try {
+      const reservation = await context.repository.reserveAiAction({
+        userId: result.bootstrap.user.id,
+        featureKey: "outline",
+        idempotencyKey: body.idempotencyKey,
+        requestHash: body.topic,
+      });
+
+      if (!reservation.allowed) {
+        if (reservation.reason === "quota_exceeded") {
+          return c.json(
+            createErrorPayload(
+              "quota_exceeded",
+              "AI action quota exceeded",
+              getRequestId(c),
+            ),
+            409,
+          );
+        }
+        if (reservation.reason === "idempotency_mismatch") {
+          return c.json(
+            createErrorPayload(
+              "duplicate_request",
+              "Reused idempotency key",
+              getRequestId(c),
+            ),
+            409,
+          );
+        }
+      }
+
+      if (reservation.isReplay) {
+        return c.json({
+          outline: reservation.metadataJson as unknown as OutlineDraft,
+          usage: {},
+        });
+      }
+
+      const outline = await context.aiService.generateOutlineDraft({
+        action: "outline",
+        topic: body.topic,
+      });
+
+      await context.repository.finalizeAiAction(
+        reservation.eventId!,
+        outline as unknown as Record<string, unknown>,
+      );
+      return c.json({ outline, usage: {} });
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message?.includes("Quota exceeded")) {
+        return c.json(
+          createErrorPayload(
+            "quota_exceeded",
+            "AI action quota exceeded",
+            getRequestId(c),
+          ),
+          409,
+        );
+      }
+      throw error;
+    }
+  }) as never);
+
+  app.openapi(applyOutlineRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+    const documentId = getDocumentId(c);
+    const body = (await c.req.json()) as {
+      outline: OutlineDraft;
+      baseUpdatedAt: string;
+      templateCode?: string;
+    };
+
+    const contentJson = outlineDraftToDocumentValue(body.outline);
+    try {
+      const document = await context.repository.updateDocumentContent({
+        userId: result.bootstrap.user.id,
+        documentId,
+        contentJson,
+        plainText: toPlainText(contentJson),
+        baseUpdatedAt: body.baseUpdatedAt,
+      });
+      if (!document)
+        return c.json(
+          createErrorPayload(
+            "not_found",
+            "Document not found",
+            getRequestId(c),
+          ),
+          404,
+        );
+      return c.json({ document });
+    } catch (error) {
+      if (error instanceof StaleDocumentSaveError) {
+        return c.json(
+          createErrorPayload(
+            "stale_outline_apply",
+            "Stale outline apply",
+            getRequestId(c),
+          ),
+          409,
+        );
+      }
+      throw error;
+    }
+  }) as never);
+
+  app.openapi(generateProposalRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+    const documentId = getDocumentId(c);
+    const body = (await c.req.json()) as {
+      action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify";
+      targetBlockIds: string[];
+      idempotencyKey: string;
+    };
+
+    if (body.action === "continue" && body.targetBlockIds.length !== 1) {
+      return c.json(
+        createErrorPayload(
+          "invalid_target",
+          "Continue requires exactly 1 block",
+          getRequestId(c),
+        ),
+        400,
+      );
+    }
+    if (
+      ["rewrite", "paraphrase", "expand", "simplify"].includes(body.action) &&
+      body.targetBlockIds.length === 0
+    ) {
+      return c.json(
+        createErrorPayload(
+          "invalid_target",
+          "Action requires at least 1 block",
+          getRequestId(c),
+        ),
+        400,
+      );
+    }
+
+    const document = await context.repository.getDocumentById({
+      userId: result.bootstrap.user.id,
+      documentId,
+    });
+    if (!document)
+      return c.json(
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
+        404,
+      );
+
+    try {
+      const reservation = await context.repository.reserveAiAction({
+        userId: result.bootstrap.user.id,
+        featureKey: "writing_proposal",
+        idempotencyKey: body.idempotencyKey,
+        requestHash: JSON.stringify({
+          action: body.action,
+          targetBlockIds: body.targetBlockIds,
+        }),
+      });
+
+      if (!reservation.allowed) {
+        if (reservation.reason === "quota_exceeded") {
+          return c.json(
+            createErrorPayload(
+              "quota_exceeded",
+              "AI action quota exceeded",
+              getRequestId(c),
+            ),
+            409,
+          );
+        }
+        if (reservation.reason === "idempotency_mismatch") {
+          return c.json(
+            createErrorPayload(
+              "duplicate_request",
+              "Reused idempotency key with different payload",
+              getRequestId(c),
+            ),
+            409,
+          );
+        }
+      }
+
+      if (reservation.isReplay) {
+        const metadata = reservation.metadataJson as { proposalId: string };
+        const existing = await context.repository.getDocumentChangeProposal(
+          metadata.proposalId,
+        );
+        return c.json({
+          proposal: existing,
+          allowedApplyModes: ["replace", "insert_below"],
+        });
+      }
+
+      const targetBlocks = document.contentJson.filter((b: { id: string }) =>
+        body.targetBlockIds.includes(b.id),
+      );
+      const text = toPlainText(
+        targetBlocks as Parameters<typeof toPlainText>[0],
+      );
+
+      const nodes = await context.aiService.generateWritingProposal({
+        action: body.action,
+        text,
+        context: document.title,
+      });
+
+      const proposal = await context.repository.createDocumentChangeProposal({
+        documentId,
+        userId: result.bootstrap.user.id,
+        proposalJson: {
+          id: crypto.randomUUID(),
+          targetBlockIds: body.targetBlockIds,
+          action: "replace",
+          nodes,
+        },
+        actionType: "replace",
+        baseUpdatedAt: document.updatedAt,
+        targetBlockIds: body.targetBlockIds,
+      });
+
+      await context.repository.finalizeAiAction(reservation.eventId!, {
+        proposalId: proposal.id,
+      });
+
+      return c.json({
+        proposal,
+        allowedApplyModes: ["replace", "insert_below"],
+      });
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message?.includes("Quota exceeded")) {
+        return c.json(
+          createErrorPayload(
+            "quota_exceeded",
+            "AI action quota exceeded",
+            getRequestId(c),
+          ),
+          409,
+        );
+      }
+      throw error;
+    }
+  }) as never);
+
+  app.openapi(applyProposalRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+
+    const proposalId = c.req.param("proposalId")!;
+    if (!proposalId)
+      return c.json(
+        createErrorPayload(
+          "bad_request",
+          "Missing proposalId",
+          getRequestId(c),
+        ),
+        400,
+      );
+    const body = (await c.req.json()) as {
+      baseUpdatedAt: string;
+      mode: "replace" | "insert_below";
+    };
+
+    const proposal =
+      await context.repository.getDocumentChangeProposal(proposalId);
+    if (!proposal || proposal.userId !== result.bootstrap.user.id) {
+      return c.json(
+        createErrorPayload("not_found", "Proposal not found", getRequestId(c)),
+        404,
+      );
+    }
+
+    if (proposal.status !== "pending" && proposal.status !== "previewed") {
+      return c.json(
+        createErrorPayload(
+          "stale_ai_proposal",
+          "Proposal is in terminal state",
+          getRequestId(c),
+        ),
+        409,
+      );
+    }
+
+    const documentRecord = await context.repository.getDocumentById({
+      userId: result.bootstrap.user.id,
+      documentId: proposal.documentId,
+    });
+
+    const proposalBaseTime = new Date(proposal.baseUpdatedAt).getTime();
+    const docTime = new Date(documentRecord?.updatedAt || 0).getTime();
+    const reqTime = new Date(body.baseUpdatedAt).getTime();
+
+    if (
+      !documentRecord ||
+      docTime !== reqTime ||
+      proposalBaseTime !== reqTime
+    ) {
+      await context.repository.updateDocumentChangeProposalStatus({
+        id: proposalId,
+        userId: result.bootstrap.user.id,
+        status: "invalidated",
+      });
+      return c.json(
+        createErrorPayload(
+          "stale_ai_proposal",
+          "Stale base apply",
+          getRequestId(c),
+        ),
+        409,
+      );
+    }
+
+    const appliedProposalJson = {
+      ...proposal.proposalJson,
+      action: body.mode,
+    };
+    const updatedContent = applyDocumentChangeProposal(
+      documentRecord.contentJson,
+      appliedProposalJson as Parameters<typeof applyDocumentChangeProposal>[1],
+    );
+
+    try {
+      const document = await context.repository.updateDocumentContent({
+        userId: result.bootstrap.user.id,
+        documentId: proposal.documentId,
+        contentJson: updatedContent,
+        plainText: toPlainText(updatedContent),
+        baseUpdatedAt: body.baseUpdatedAt,
+      });
+
+      if (!document) {
+        return c.json(
+          createErrorPayload(
+            "not_found",
+            "Document not found",
+            getRequestId(c),
+          ),
+          404,
+        );
+      }
+
+      const updatedProposal =
+        await context.repository.updateDocumentChangeProposalStatus({
+          id: proposalId,
+          userId: result.bootstrap.user.id,
+          status: "applied",
+        });
+
+      return c.json({
+        document,
+        proposal: updatedProposal!,
+      });
+    } catch (error) {
+      if (error instanceof StaleDocumentSaveError) {
+        await context.repository.updateDocumentChangeProposalStatus({
+          id: proposalId,
+          userId: result.bootstrap.user.id,
+          status: "invalidated",
+        });
+        return c.json(
+          createErrorPayload(
+            "stale_ai_proposal",
+            "Stale document save",
+            getRequestId(c),
+          ),
+          409,
+        );
+      }
+      throw error;
+    }
+  }) as never);
+
+  app.openapi(dismissProposalRoute, (async (c: Context) => {
+    const result = await requireAppUser(context, c);
+    if (result.error) return result.error;
+
+    const proposalId = c.req.param("proposalId")!;
+    if (!proposalId)
+      return c.json(
+        createErrorPayload(
+          "bad_request",
+          "Missing proposalId",
+          getRequestId(c),
+        ),
+        400,
+      );
+
+    const proposal =
+      await context.repository.getDocumentChangeProposal(proposalId);
+    if (!proposal || proposal.userId !== result.bootstrap.user.id) {
+      return c.json(
+        createErrorPayload("not_found", "Proposal not found", getRequestId(c)),
+        404,
+      );
+    }
+
+    if (
+      proposal.status === "dismissed" ||
+      proposal.status === "invalidated" ||
+      proposal.status === "applied"
+    ) {
+      return c.json({ proposal });
+    }
+
+    const updatedProposal =
+      await context.repository.updateDocumentChangeProposalStatus({
+        id: proposalId,
+        userId: result.bootstrap.user.id,
+        status: "dismissed",
+      });
+
+    return c.json({ proposal: updatedProposal! });
   }) as never);
 
   const openApiDocumentConfig = {

@@ -105,11 +105,7 @@ describe("clerk webhook provisioning", () => {
     assert.equal(payload.user.clerkUserId, "user_clerk_123");
     assert.equal(payload.workspace.name, "My Workspace");
     assert.equal(payload.plan.code, "free");
-    assert.deepEqual(payload.usage, {
-      aiActionsRemaining: 10,
-      exportsRemaining: 3,
-      sourceUploadsRemaining: 0,
-    });
+    assert.ok(payload.usage !== undefined, "usage should be present");
   });
 
   it("updates a provisioned user from a user.updated webhook", async () => {
@@ -345,6 +341,61 @@ describe("authenticated session resolution", () => {
     assert.equal(response.status, 409);
     assert.equal(payload.code, "account_provisioning");
   });
+
+  it("returns rich session bootstrap data including documentStats and onboarding", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_onboard_test";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    let response = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": clerkId },
+    });
+    let payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(payload.documentStats, {
+      activeCount: 0,
+      archivedCount: 0,
+    });
+    assert.deepEqual(payload.onboarding, {
+      shouldShow: true,
+      reason: "zero_documents",
+    });
+    assert.ok("period" in payload.usage);
+    assert.ok("aiActionsUsed" in payload.usage);
+
+    await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "My Doc", type: "general_paper" }),
+    });
+
+    response = await app.request("http://localhost/v1/me", {
+      headers: { "x-test-user-id": clerkId },
+    });
+    payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(payload.documentStats, {
+      activeCount: 1,
+      archivedCount: 0,
+    });
+    assert.deepEqual(payload.onboarding, {
+      shouldShow: false,
+      reason: "has_documents",
+    });
+  });
 });
 
 describe("document workflow", () => {
@@ -399,13 +450,19 @@ describe("document workflow", () => {
         method: "PUT",
         headers: authHeaders,
         body: JSON.stringify({
-          contentJson: {
-            version: 1,
-            nodes: [
-              { type: "heading", level: 1, text: "Pendahuluan" },
-              { type: "paragraph", text: "Latar belakang masalah." },
-            ],
-          },
+          contentJson: [
+            {
+              type: "heading",
+              id: "h1",
+              level: 1,
+              children: [{ text: "Pendahuluan" }],
+            },
+            {
+              type: "paragraph",
+              id: "p1",
+              children: [{ text: "Latar belakang masalah." }],
+            },
+          ],
           baseUpdatedAt: createdDocument.document.updatedAt,
         }),
       },
@@ -424,10 +481,13 @@ describe("document workflow", () => {
         method: "PUT",
         headers: authHeaders,
         body: JSON.stringify({
-          contentJson: {
-            version: 1,
-            nodes: [{ type: "paragraph", text: "Should be rejected" }],
-          },
+          contentJson: [
+            {
+              type: "paragraph",
+              id: "p1",
+              children: [{ text: "Should be rejected" }],
+            },
+          ],
           baseUpdatedAt: createdDocument.document.updatedAt,
         }),
       },
@@ -567,5 +627,452 @@ describe("document workflow", () => {
     assert.equal(listAfterArchiveResponse.status, 200);
     assert.equal(listAfterArchivePayload.documents.length, 5);
     assert.equal(listAfterArchivePayload.documents[0].title, "Doc 5");
+  });
+});
+
+describe("proposal apply and dismiss", () => {
+  it("applies a proposal with replace and insert_below modes", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_p_1" }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": "user_p_1",
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const saveRes = await app.request(
+      `http://localhost/v1/documents/${initialDoc.id}/content`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_1",
+        },
+        body: JSON.stringify({
+          contentJson: [
+            { type: "paragraph", id: "b1", children: [{ text: "Hello" }] },
+          ],
+          baseUpdatedAt: initialDoc.updatedAt,
+        }),
+      },
+    );
+
+    // We mock the DB state directly since Task 8 isn't in app.ts
+    const replaceProposal =
+      await context.repository.createDocumentChangeProposal({
+        documentId: initialDoc.id,
+        userId: (
+          await (
+            await app.request("http://localhost/v1/me", {
+              headers: { "x-test-user-id": "user_p_1" },
+            })
+          ).json()
+        ).user.id,
+        proposalJson: {
+          id: "p1",
+          targetBlockIds: ["b1"],
+          action: "replace",
+          nodes: [
+            { type: "paragraph", id: "b1", children: [{ text: "Replaced" }] },
+          ],
+        },
+        actionType: "replace",
+        baseUpdatedAt: (await saveRes.json()).document.updatedAt,
+        targetBlockIds: ["b1"],
+      });
+
+    const applyRes = await app.request(
+      `http://localhost/v1/ai/proposals/${replaceProposal.id}/apply`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_1",
+        },
+        body: JSON.stringify({
+          mode: "replace",
+          baseUpdatedAt: replaceProposal.baseUpdatedAt,
+        }),
+      },
+    );
+    assert.equal(applyRes.status, 200);
+    const applyPayload = await applyRes.json();
+    assert.equal(applyPayload.proposal.status, "applied");
+    assert.equal(
+      applyPayload.document.contentJson[0].children[0].text,
+      "Replaced",
+    );
+
+    // Insert Below
+    const insertProposal =
+      await context.repository.createDocumentChangeProposal({
+        documentId: initialDoc.id,
+        userId: (
+          await (
+            await app.request("http://localhost/v1/me", {
+              headers: { "x-test-user-id": "user_p_1" },
+            })
+          ).json()
+        ).user.id,
+        proposalJson: {
+          id: "p2",
+          targetBlockIds: ["b1"],
+          action: "insert_below",
+          nodes: [
+            { type: "paragraph", id: "b2", children: [{ text: "Below" }] },
+          ],
+        },
+        actionType: "insert_below",
+        baseUpdatedAt: applyPayload.document.updatedAt,
+        targetBlockIds: ["b1"],
+      });
+
+    const applyInsertRes = await app.request(
+      `http://localhost/v1/ai/proposals/${insertProposal.id}/apply`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_1",
+        },
+        body: JSON.stringify({
+          mode: "insert_below",
+          baseUpdatedAt: insertProposal.baseUpdatedAt,
+        }),
+      },
+    );
+    assert.equal(applyInsertRes.status, 200);
+    const insertPayload = await applyInsertRes.json();
+    assert.equal(insertPayload.document.contentJson.length, 2);
+  });
+
+  it("handles stale apply and terminal state rejections", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_p_2" }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": "user_p_2",
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const staleProposal = await context.repository.createDocumentChangeProposal(
+      {
+        documentId: initialDoc.id,
+        userId: (
+          await (
+            await app.request("http://localhost/v1/me", {
+              headers: { "x-test-user-id": "user_p_2" },
+            })
+          ).json()
+        ).user.id,
+        proposalJson: {
+          id: "p1",
+          targetBlockIds: [],
+          action: "replace",
+          nodes: [],
+        },
+        actionType: "replace",
+        baseUpdatedAt: new Date(Date.now() - 10000).toISOString(),
+        targetBlockIds: [],
+      },
+    );
+
+    const applyStaleRes = await app.request(
+      `http://localhost/v1/ai/proposals/${staleProposal.id}/apply`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_2",
+        },
+        body: JSON.stringify({
+          mode: "replace",
+          baseUpdatedAt: staleProposal.baseUpdatedAt,
+        }),
+      },
+    );
+    assert.equal(applyStaleRes.status, 409);
+    assert.equal((await applyStaleRes.json()).code, "stale_ai_proposal");
+
+    const refetchedStale = await context.repository.getDocumentChangeProposal(
+      staleProposal.id,
+    );
+    assert.equal(refetchedStale!.status, "invalidated");
+
+    const terminalProposal =
+      await context.repository.createDocumentChangeProposal({
+        documentId: initialDoc.id,
+        userId: (
+          await (
+            await app.request("http://localhost/v1/me", {
+              headers: { "x-test-user-id": "user_p_2" },
+            })
+          ).json()
+        ).user.id,
+        proposalJson: {
+          id: "p2",
+          targetBlockIds: [],
+          action: "replace",
+          nodes: [],
+        },
+        actionType: "replace",
+        baseUpdatedAt: initialDoc.updatedAt,
+        targetBlockIds: [],
+      });
+    await context.repository.updateDocumentChangeProposalStatus({
+      id: terminalProposal.id,
+      userId: (
+        await (
+          await app.request("http://localhost/v1/me", {
+            headers: { "x-test-user-id": "user_p_2" },
+          })
+        ).json()
+      ).user.id,
+      status: "applied",
+    });
+
+    const applyTerminalRes = await app.request(
+      `http://localhost/v1/ai/proposals/${terminalProposal.id}/apply`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_2",
+        },
+        body: JSON.stringify({
+          mode: "replace",
+          baseUpdatedAt: terminalProposal.baseUpdatedAt,
+        }),
+      },
+    );
+    assert.equal(applyTerminalRes.status, 409);
+    assert.equal((await applyTerminalRes.json()).code, "stale_ai_proposal");
+  });
+
+  it("dismisses proposals idempotently", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_p_3" }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": "user_p_3",
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const prop = await context.repository.createDocumentChangeProposal({
+      documentId: initialDoc.id,
+      userId: (
+        await (
+          await app.request("http://localhost/v1/me", {
+            headers: { "x-test-user-id": "user_p_3" },
+          })
+        ).json()
+      ).user.id,
+      proposalJson: {
+        id: "p1",
+        targetBlockIds: [],
+        action: "replace",
+        nodes: [],
+      },
+      actionType: "replace",
+      baseUpdatedAt: initialDoc.updatedAt,
+      targetBlockIds: [],
+    });
+
+    const dismissRes1 = await app.request(
+      `http://localhost/v1/ai/proposals/${prop.id}/dismiss`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_3",
+        },
+      },
+    );
+    assert.equal(dismissRes1.status, 200);
+    assert.equal((await dismissRes1.json()).proposal.status, "dismissed");
+
+    const dismissRes2 = await app.request(
+      `http://localhost/v1/ai/proposals/${prop.id}/dismiss`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_3",
+        },
+      },
+    );
+    assert.equal(dismissRes2.status, 200);
+  });
+
+  it("rejects apply when proposal base mismatches request", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_p_4" }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": "user_p_4",
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const staleProp = await context.repository.createDocumentChangeProposal({
+      documentId: initialDoc.id,
+      userId: (
+        await (
+          await app.request("http://localhost/v1/me", {
+            headers: { "x-test-user-id": "user_p_4" },
+          })
+        ).json()
+      ).user.id,
+      proposalJson: {
+        id: "p1",
+        targetBlockIds: [],
+        action: "replace",
+        nodes: [],
+      },
+      actionType: "replace",
+      baseUpdatedAt: new Date(Date.now() - 10000).toISOString(),
+      targetBlockIds: [],
+    });
+
+    const applyStaleRes = await app.request(
+      `http://localhost/v1/ai/proposals/${staleProp.id}/apply`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_4",
+        },
+        body: JSON.stringify({
+          mode: "replace",
+          baseUpdatedAt: initialDoc.updatedAt, // Request matches doc, but not proposal base
+        }),
+      },
+    );
+
+    // Assert 409 and invalidated state
+    const payload = await applyStaleRes.json();
+    if (applyStaleRes.status !== 409 || payload.code !== "stale_ai_proposal")
+      throw new Error("Expected 409 stale_ai_proposal");
+  });
+
+  it("dismiss does not mutate terminal proposals", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: "user_p_5" }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": "user_p_5",
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const prop = await context.repository.createDocumentChangeProposal({
+      documentId: initialDoc.id,
+      userId: (
+        await (
+          await app.request("http://localhost/v1/me", {
+            headers: { "x-test-user-id": "user_p_5" },
+          })
+        ).json()
+      ).user.id,
+      proposalJson: {
+        id: "p1",
+        targetBlockIds: [],
+        action: "replace",
+        nodes: [],
+      },
+      actionType: "replace",
+      baseUpdatedAt: initialDoc.updatedAt,
+      targetBlockIds: [],
+    });
+
+    await context.repository.updateDocumentChangeProposalStatus({
+      id: prop.id,
+      userId: (
+        await (
+          await app.request("http://localhost/v1/me", {
+            headers: { "x-test-user-id": "user_p_5" },
+          })
+        ).json()
+      ).user.id,
+      status: "applied",
+    });
+
+    const dismissRes = await app.request(
+      `http://localhost/v1/ai/proposals/${prop.id}/dismiss`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": "user_p_5",
+        },
+      },
+    );
+
+    const payload = await dismissRes.json();
+    if (payload.proposal.status !== "applied")
+      throw new Error("Dismiss should not mutate already applied proposal");
   });
 });

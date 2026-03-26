@@ -1,17 +1,33 @@
 import { clerkMiddleware, getAuth } from "@hono/clerk-auth";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { verifyWebhook } from "@clerk/backend/webhooks";
-import type { DocumentAst } from "@aqshara/documents";
+import type {
+  DocumentValue,
+  DocumentChangeProposal,
+  TemplateCode,
+} from "@aqshara/documents";
+import { createTemplateDocument, toPlainText } from "@aqshara/documents";
 import {
   createDatabase,
   documents,
   users,
   workspaces,
+  usageEvents,
+  monthlyUsageCounters,
+  aiActionsReserved,
+  documentChangeProposals,
 } from "@aqshara/database";
 import { and, desc, eq, isNull, isNotNull } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
+
+import { AiService, FakeAiProvider } from "./ai/index.js";
+
+export function getCurrentBillingPeriod(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
 export type PlanCode = "free";
 export type DocumentType = "general_paper" | "proposal" | "skripsi";
@@ -78,7 +94,7 @@ export type AppDocument = {
   workspaceId: string;
   title: string;
   type: DocumentType;
-  contentJson: DocumentAst;
+  contentJson: DocumentValue;
   plainText: string | null;
   archivedAt: string | null;
   createdAt: string;
@@ -91,6 +107,9 @@ export type AppBootstrap = {
 };
 
 export type AppUsage = {
+  period: string;
+  aiActionsUsed: number;
+  aiActionsReserved: number;
   aiActionsRemaining: number;
   exportsRemaining: number;
   sourceUploadsRemaining: number;
@@ -99,6 +118,22 @@ export type AppUsage = {
 export type DocumentListOptions = {
   userId: string;
   status: DocumentStatus;
+};
+
+export type AppDocumentChangeProposal = {
+  id: string;
+  documentId: string;
+  userId: string;
+  proposalJson: DocumentChangeProposal;
+  actionType: "replace" | "insert_below";
+  status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+  baseUpdatedAt: string;
+  targetBlockIds: string[];
+  appliedAt: string | null;
+  dismissedAt: string | null;
+  invalidatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type DocumentPatch = {
@@ -140,7 +175,7 @@ export type AppRepository = {
   updateDocumentContent(input: {
     userId: string;
     documentId: string;
-    contentJson: DocumentAst;
+    contentJson: DocumentValue;
     plainText: string;
     baseUpdatedAt: string;
   }): Promise<AppDocument | null>;
@@ -152,6 +187,50 @@ export type AppRepository = {
     userId: string;
     documentId: string;
   }): Promise<boolean>;
+
+  countActiveDocuments(userId: string): Promise<number>;
+  countArchivedDocuments(userId: string): Promise<number>;
+  reserveAiAction(input: {
+    userId: string;
+    documentId?: string;
+    featureKey: string;
+    idempotencyKey?: string;
+    requestHash?: string;
+  }): Promise<{
+    allowed: boolean;
+    reason?: "idempotency_mismatch" | "quota_exceeded";
+    eventId?: string;
+    isReplay?: boolean;
+    metadataJson?: unknown;
+  }>;
+  finalizeAiAction(eventId: string, metadataJson?: Record<string, unknown>): Promise<void>;
+  releaseAiAction(eventId: string): Promise<void>;
+  createDocumentChangeProposal(input: {
+    documentId: string;
+    userId: string;
+    proposalJson: DocumentChangeProposal;
+    actionType: "replace" | "insert_below";
+    baseUpdatedAt: string;
+    targetBlockIds: string[];
+  }): Promise<AppDocumentChangeProposal>;
+  getDocumentChangeProposal(
+    id: string,
+  ): Promise<AppDocumentChangeProposal | null>;
+  updateDocumentChangeProposalStatus(input: {
+    id: string;
+    userId: string;
+    status: "applied" | "dismissed" | "previewed" | "invalidated";
+  }): Promise<AppDocumentChangeProposal | null>;
+  createTemplateDocument(input: {
+    userId: string;
+    title: string;
+    type: DocumentType;
+    templateCode: TemplateCode;
+  }): Promise<AppDocument>;
+  invalidateStaleProposals(input: {
+    documentId: string;
+    baseRevisionUpdatedAt: string;
+  }): Promise<void>;
 };
 
 export type AppContext = {
@@ -164,7 +243,8 @@ export type AppContext = {
   verifyWebhook: (request: Request) => Promise<WebhookEvent>;
   repository: AppRepository;
   logger: Logger;
-  getUsage: (user: AppUser) => AppUsage;
+  getUsage: (user: AppUser) => Promise<AppUsage>;
+  aiService: AiService;
 };
 
 function toIsoString(value: Date | string | null): string | null {
@@ -181,7 +261,7 @@ function toDocumentRecord(row: typeof documents.$inferSelect): AppDocument {
     workspaceId: row.workspaceId,
     title: row.title,
     type: row.type as DocumentType,
-    contentJson: row.contentJson as DocumentAst,
+    contentJson: row.contentJson as DocumentValue,
     plainText: row.plainText,
     archivedAt: toIsoString(row.archivedAt),
     createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
@@ -517,10 +597,9 @@ class PostgresAppRepository implements AppRepository {
         workspaceId: workspace.id,
         title: input.title,
         type: input.type,
-        contentJson: {
-          version: 1,
-          nodes: [],
-        },
+        contentJson: [
+          { type: "paragraph", id: "root-p", children: [{ text: "" }] },
+        ],
         plainText: "",
       })
       .returning();
@@ -582,7 +661,7 @@ class PostgresAppRepository implements AppRepository {
   async updateDocumentContent(input: {
     userId: string;
     documentId: string;
-    contentJson: DocumentAst;
+    contentJson: DocumentValue;
     plainText: string;
     baseUpdatedAt: string;
   }): Promise<AppDocument | null> {
@@ -642,6 +721,422 @@ class PostgresAppRepository implements AppRepository {
     return toDocumentRecord(document);
   }
 
+  async countActiveDocuments(userId: string): Promise<number> {
+    const rows = await this.db
+      .select({ count: documents.id })
+      .from(documents)
+      .innerJoin(workspaces, eq(documents.workspaceId, workspaces.id))
+      .where(and(eq(workspaces.userId, userId), isNull(documents.archivedAt)));
+    return rows.length;
+  }
+
+  async countArchivedDocuments(userId: string): Promise<number> {
+    const rows = await this.db
+      .select({ count: documents.id })
+      .from(documents)
+      .innerJoin(workspaces, eq(documents.workspaceId, workspaces.id))
+      .where(
+        and(eq(workspaces.userId, userId), isNotNull(documents.archivedAt)),
+      );
+    return rows.length;
+  }
+
+  async reserveAiAction(input: {
+    userId: string;
+    documentId?: string;
+    featureKey: string;
+    idempotencyKey?: string;
+    requestHash?: string;
+  }): Promise<{
+    allowed: boolean;
+    reason?: "idempotency_mismatch" | "quota_exceeded";
+    eventId?: string;
+    isReplay?: boolean;
+    metadataJson?: unknown;
+  }> {
+    const period = getCurrentBillingPeriod();
+
+    if (input.idempotencyKey) {
+      const existingEvent = (
+        await this.db
+          .select()
+          .from(usageEvents)
+          .where(
+            and(
+              eq(usageEvents.userId, input.userId),
+              eq(usageEvents.idempotencyKey, input.idempotencyKey),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      if (existingEvent) {
+        if (existingEvent.requestHash !== input.requestHash) {
+          return { allowed: false, reason: "idempotency_mismatch" };
+        }
+        return { 
+          allowed: true, 
+          eventId: existingEvent.id,
+          isReplay: existingEvent.status === "succeeded",
+          metadataJson: existingEvent.metadataJson
+        };
+      }
+    }
+
+    const limit = 10;
+
+    const counters = (
+      await this.db
+        .select()
+        .from(monthlyUsageCounters)
+        .where(
+          and(
+            eq(monthlyUsageCounters.userId, input.userId),
+            eq(monthlyUsageCounters.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    const used = counters?.aiActionsUsed ?? 0;
+
+    const reservedRecord = (
+      await this.db
+        .select()
+        .from(aiActionsReserved)
+        .where(
+          and(
+            eq(aiActionsReserved.userId, input.userId),
+            eq(aiActionsReserved.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    const reserved = reservedRecord?.aiActionsReserved ?? 0;
+
+    if (used + reserved >= limit) {
+      return { allowed: false, reason: "quota_exceeded" };
+    }
+
+    if (reservedRecord) {
+      await this.db
+        .update(aiActionsReserved)
+        .set({ aiActionsReserved: reserved + 1, updatedAt: new Date() })
+        .where(eq(aiActionsReserved.id, reservedRecord.id));
+    } else {
+      await this.db.insert(aiActionsReserved).values({
+        userId: input.userId,
+        period,
+        aiActionsReserved: 1,
+      });
+    }
+
+    const [event] = await this.db
+      .insert(usageEvents)
+      .values({
+        userId: input.userId,
+        documentId: input.documentId,
+        billingPeriod: period,
+        featureKey: input.featureKey,
+        eventType: "ai_action",
+        status: "reserved",
+        idempotencyKey: input.idempotencyKey,
+        requestHash: input.requestHash,
+      })
+      .returning();
+
+    return { allowed: true, eventId: event!.id };
+  }
+
+  async finalizeAiAction(eventId: string, metadataJson?: Record<string, unknown>): Promise<void> {
+    const event = (
+      await this.db
+        .select()
+        .from(usageEvents)
+        .where(eq(usageEvents.id, eventId))
+        .limit(1)
+    )[0];
+    if (!event || event.status !== "reserved") return;
+
+    await this.db
+      .update(usageEvents)
+      .set({ 
+        status: "succeeded", 
+        completedAt: new Date(),
+        ...(metadataJson ? { metadataJson } : {}) 
+      })
+      .where(eq(usageEvents.id, eventId));
+
+    const period = event.billingPeriod;
+    const counters = (
+      await this.db
+        .select()
+        .from(monthlyUsageCounters)
+        .where(
+          and(
+            eq(monthlyUsageCounters.userId, event.userId),
+            eq(monthlyUsageCounters.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    if (counters) {
+      await this.db
+        .update(monthlyUsageCounters)
+        .set({
+          aiActionsUsed: counters.aiActionsUsed + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(monthlyUsageCounters.id, counters.id));
+    } else {
+      await this.db.insert(monthlyUsageCounters).values({
+        userId: event.userId,
+        period,
+        aiActionsUsed: 1,
+      });
+    }
+
+    const reservedRecord = (
+      await this.db
+        .select()
+        .from(aiActionsReserved)
+        .where(
+          and(
+            eq(aiActionsReserved.userId, event.userId),
+            eq(aiActionsReserved.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (reservedRecord && reservedRecord.aiActionsReserved > 0) {
+      await this.db
+        .update(aiActionsReserved)
+        .set({
+          aiActionsReserved: reservedRecord.aiActionsReserved - 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiActionsReserved.id, reservedRecord.id));
+    }
+  }
+
+  async releaseAiAction(eventId: string): Promise<void> {
+    const event = (
+      await this.db
+        .select()
+        .from(usageEvents)
+        .where(eq(usageEvents.id, eventId))
+        .limit(1)
+    )[0];
+    if (!event || event.status !== "reserved") return;
+
+    await this.db
+      .update(usageEvents)
+      .set({ status: "released", releasedAt: new Date() })
+      .where(eq(usageEvents.id, eventId));
+
+    const period = event.billingPeriod;
+    const reservedRecord = (
+      await this.db
+        .select()
+        .from(aiActionsReserved)
+        .where(
+          and(
+            eq(aiActionsReserved.userId, event.userId),
+            eq(aiActionsReserved.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (reservedRecord && reservedRecord.aiActionsReserved > 0) {
+      await this.db
+        .update(aiActionsReserved)
+        .set({
+          aiActionsReserved: reservedRecord.aiActionsReserved - 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiActionsReserved.id, reservedRecord.id));
+    }
+  }
+
+  async createDocumentChangeProposal(input: {
+    documentId: string;
+    userId: string;
+    proposalJson: DocumentChangeProposal;
+    actionType: "replace" | "insert_below";
+    baseUpdatedAt: string;
+    targetBlockIds: string[];
+  }): Promise<AppDocumentChangeProposal> {
+    const [row] = await this.db
+      .insert(documentChangeProposals)
+      .values({
+        documentId: input.documentId,
+        userId: input.userId,
+        proposalJson: input.proposalJson,
+        actionType: input.actionType,
+        status: "pending",
+        baseUpdatedAt: new Date(input.baseUpdatedAt),
+        targetBlockIds: input.targetBlockIds,
+      })
+      .returning();
+
+    if (!row) throw new Error("Insert failed");
+    return {
+      ...row,
+      proposalJson: row.proposalJson as DocumentChangeProposal,
+      actionType: row.actionType as "replace" | "insert_below",
+      status: row.status as "pending",
+      baseUpdatedAt: row.baseUpdatedAt.toISOString(),
+      appliedAt: row.appliedAt ? row.appliedAt.toISOString() : null,
+      dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
+      invalidatedAt: row.invalidatedAt ? row.invalidatedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  async getDocumentChangeProposal(
+    id: string,
+  ): Promise<AppDocumentChangeProposal | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(documentChangeProposals)
+        .where(eq(documentChangeProposals.id, id))
+        .limit(1)
+    )[0];
+    if (!row) return null;
+    return {
+      ...row,
+      proposalJson: row.proposalJson as DocumentChangeProposal,
+      actionType: row.actionType as "replace" | "insert_below",
+      status: row.status as AppDocumentChangeProposal["status"],
+      baseUpdatedAt: row.baseUpdatedAt.toISOString(),
+      appliedAt: row.appliedAt ? row.appliedAt.toISOString() : null,
+      dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
+      invalidatedAt: row.invalidatedAt ? row.invalidatedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  async updateDocumentChangeProposalStatus(input: {
+    id: string;
+    userId: string;
+    status: "applied" | "dismissed" | "previewed" | "invalidated";
+  }): Promise<AppDocumentChangeProposal | null> {
+    const now = new Date();
+    const updates = {
+      status: input.status,
+      updatedAt: now,
+      ...(input.status === "applied" ? { appliedAt: now } : {}),
+      ...(input.status === "dismissed" ? { dismissedAt: now } : {}),
+      ...(input.status === "invalidated" ? { invalidatedAt: now } : {}),
+    };
+
+    const [row] = await this.db
+      .update(documentChangeProposals)
+      .set(updates)
+      .where(
+        and(
+          eq(documentChangeProposals.id, input.id),
+          eq(documentChangeProposals.userId, input.userId),
+        ),
+      )
+      .returning();
+
+    if (!row) return null;
+    return {
+      ...row,
+      proposalJson: row.proposalJson as DocumentChangeProposal,
+      actionType: row.actionType as "replace" | "insert_below",
+      status: row.status as AppDocumentChangeProposal["status"],
+      baseUpdatedAt: row.baseUpdatedAt.toISOString(),
+      appliedAt: row.appliedAt ? row.appliedAt.toISOString() : null,
+      dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
+      invalidatedAt: row.invalidatedAt ? row.invalidatedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  async createTemplateDocument(input: {
+    userId: string;
+    title: string;
+    type: DocumentType;
+    templateCode: TemplateCode;
+  }): Promise<AppDocument> {
+    const workspace = (
+      await this.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.userId, input.userId))
+        .limit(1)
+    )[0];
+
+    if (!workspace) {
+      throw new Error("Workspace not found for user");
+    }
+
+    const contentJson = createTemplateDocument(input.templateCode);
+
+    const [document] = await this.db
+      .insert(documents)
+      .values({
+        workspaceId: workspace.id,
+        title: input.title,
+        type: input.type,
+        contentJson,
+        plainText: toPlainText(contentJson),
+      })
+      .returning();
+
+    if (!document) throw new Error("Insert failed");
+    return {
+      id: document.id,
+      workspaceId: document.workspaceId,
+      title: document.title,
+      type: document.type as DocumentType,
+      contentJson: document.contentJson as DocumentValue,
+      plainText: document.plainText,
+      archivedAt: document.archivedAt
+        ? document.archivedAt.toISOString()
+        : null,
+      createdAt: document.createdAt.toISOString(),
+      updatedAt: document.updatedAt.toISOString(),
+    };
+  }
+
+  async invalidateStaleProposals(input: {
+    documentId: string;
+    baseRevisionUpdatedAt: string;
+  }): Promise<void> {
+    const baseDate = new Date(input.baseRevisionUpdatedAt);
+
+    const activeProposals = await this.db
+      .select()
+      .from(documentChangeProposals)
+      .where(eq(documentChangeProposals.documentId, input.documentId));
+
+    const toInvalidate = activeProposals.filter(
+      (p) =>
+        (p.status === "pending" || p.status === "previewed") &&
+        p.baseUpdatedAt.getTime() < baseDate.getTime(),
+    );
+
+    for (const p of toInvalidate) {
+      await this.db
+        .update(documentChangeProposals)
+        .set({
+          status: "invalidated",
+          invalidatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(documentChangeProposals.id, p.id));
+    }
+  }
+
   async deleteDocument(input: {
     userId: string;
     documentId: string;
@@ -673,18 +1168,50 @@ export function createProductionAppContext(): AppContext {
     },
     repository: new PostgresAppRepository(),
     logger: createLogger("api"),
-    getUsage(user) {
-      return user.planCode === "free"
-        ? {
-            aiActionsRemaining: 10,
-            exportsRemaining: 3,
-            sourceUploadsRemaining: 0,
-          }
-        : {
-            aiActionsRemaining: 10,
-            exportsRemaining: 3,
-            sourceUploadsRemaining: 0,
-          };
+    aiService: new AiService(new FakeAiProvider()),
+    async getUsage(user) {
+      const period = getCurrentBillingPeriod();
+      const limit = user.planCode === "free" ? 10 : 10;
+
+      const db = createDatabase();
+      const counters = (
+        await db
+          .select()
+          .from(monthlyUsageCounters)
+          .where(
+            and(
+              eq(monthlyUsageCounters.userId, user.id),
+              eq(monthlyUsageCounters.period, period),
+            ),
+          )
+          .limit(1)
+      )[0];
+      const used = counters?.aiActionsUsed ?? 0;
+
+      const reservedRecord = (
+        await db
+          .select()
+          .from(aiActionsReserved)
+          .where(
+            and(
+              eq(aiActionsReserved.userId, user.id),
+              eq(aiActionsReserved.period, period),
+            ),
+          )
+          .limit(1)
+      )[0];
+      const reserved = reservedRecord?.aiActionsReserved ?? 0;
+
+      const remaining = Math.max(0, limit - (used + reserved));
+
+      return {
+        period,
+        aiActionsUsed: used,
+        aiActionsReserved: reserved,
+        aiActionsRemaining: remaining,
+        exportsRemaining: 3,
+        sourceUploadsRemaining: 0,
+      };
     },
   };
 }

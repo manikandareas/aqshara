@@ -1,7 +1,7 @@
 {
   "extends": "@aqshara/typescript-config/node.json",
   "compilerOptions": {
-    "rootDir": "src",
+    "rootDir": "src", "allowImportingTsExtensions": true,
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],

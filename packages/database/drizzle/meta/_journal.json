@@ -15,6 +15,13 @@
       "when": 1774266351186,
       "tag": "0001_illegal_beyonder",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774387820550,
+      "tag": "0002_keen_next_avengers",
+      "breakpoints": true
     }
   ]
 }

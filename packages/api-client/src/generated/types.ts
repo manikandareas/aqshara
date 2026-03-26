@@ -143,9 +143,21 @@ export interface paths {
                                 label: "Free";
                             };
                             usage: {
+                                period: string;
+                                aiActionsUsed: number;
+                                aiActionsReserved: number;
                                 aiActionsRemaining: number;
                                 exportsRemaining: number;
                                 sourceUploadsRemaining: number;
+                            };
+                            documentStats: {
+                                activeCount: number;
+                                archivedCount: number;
+                            };
+                            onboarding: {
+                                shouldShow: boolean;
+                                /** @enum {string} */
+                                reason: "zero_documents" | "has_documents";
                             };
                         };
                     };
@@ -231,24 +243,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -304,24 +326,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -383,24 +415,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -464,24 +506,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -602,24 +654,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -679,24 +741,34 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
-                        contentJson: {
-                            /** @enum {number} */
-                            version: 1;
-                            nodes: ({
-                                /** @enum {string} */
-                                type: "heading";
-                                level: 1 | 2 | 3;
+                        contentJson: ({
+                            /** @enum {string} */
+                            type: "heading";
+                            id: string;
+                            level: 1 | 2 | 3;
+                            children: {
                                 text: string;
-                            } | {
-                                /** @enum {string} */
-                                type: "paragraph";
+                            }[];
+                        } | {
+                            /** @enum {string} */
+                            type: "paragraph";
+                            id: string;
+                            children: {
                                 text: string;
-                            } | {
+                            }[];
+                        } | {
+                            /** @enum {string} */
+                            type: "bullet-list";
+                            id: string;
+                            children: {
                                 /** @enum {string} */
-                                type: "bullet_list";
-                                items: string[];
-                            })[];
-                        };
+                                type: "list-item";
+                                id: string;
+                                children: {
+                                    text: string;
+                                }[];
+                            }[];
+                        })[];
                         /** Format: date-time */
                         baseUpdatedAt: string;
                     };
@@ -716,24 +788,34 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
-                                    nodes: ({
-                                        /** @enum {string} */
-                                        type: "heading";
-                                        level: 1 | 2 | 3;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
                                         text: string;
-                                    } | {
-                                        /** @enum {string} */
-                                        type: "paragraph";
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
                                         text: string;
-                                    } | {
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
-                                    })[];
-                                };
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
                                 createdAt: string;
@@ -824,26 +906,886 @@ export interface paths {
                                 title: string;
                                 /** @enum {string} */
                                 type: "general_paper" | "proposal" | "skripsi";
-                                contentJson: {
-                                    /** @enum {number} */
-                                    version: 1;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
+                                        /** @enum {string} */
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List available document templates */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Available templates */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            templates: string[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a new document from a template or blank */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        /** @enum {string} */
+                        type: "general_paper" | "proposal" | "skripsi";
+                        /** @enum {string} */
+                        templateCode: "blank" | "general_paper" | "proposal" | "skripsi";
+                    };
+                };
+            };
+            responses: {
+                /** @description Created document */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
+                                        /** @enum {string} */
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/outline/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate an outline draft */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        topic: string;
+                        idempotencyKey: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Generated outline */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            outline: {
+                                title: string;
+                                nodes: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    level: 1 | 2 | 3;
+                                    text: string;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    text: string;
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet_list";
+                                    items: string[];
+                                })[];
+                            };
+                            usage: Record<string, never>;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Quota exceeded */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/outline/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply an outline draft */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        outline: {
+                            title: string;
+                            nodes: ({
+                                /** @enum {string} */
+                                type: "heading";
+                                level: 1 | 2 | 3;
+                                text: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "paragraph";
+                                text: string;
+                            } | {
+                                /** @enum {string} */
+                                type: "bullet_list";
+                                items: string[];
+                            })[];
+                        };
+                        /** Format: date-time */
+                        baseUpdatedAt: string;
+                        templateCode?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Applied outline */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
+                                        /** @enum {string} */
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
+                                plainText: string | null;
+                                archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Stale document */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/ai/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a writing proposal */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify";
+                        targetBlockIds: string[];
+                        idempotencyKey: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Generated proposal */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            proposal: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                proposalJson: {
+                                    id: string;
+                                    targetBlockIds: string[];
+                                    /** @enum {string} */
+                                    action: "replace" | "insert_below";
                                     nodes: ({
                                         /** @enum {string} */
                                         type: "heading";
+                                        id: string;
                                         level: 1 | 2 | 3;
-                                        text: string;
+                                        children: {
+                                            text: string;
+                                        }[];
                                     } | {
                                         /** @enum {string} */
                                         type: "paragraph";
-                                        text: string;
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
                                     } | {
                                         /** @enum {string} */
-                                        type: "bullet_list";
-                                        items: string[];
+                                        type: "bullet-list";
+                                        id: string;
+                                        children: {
+                                            /** @enum {string} */
+                                            type: "list-item";
+                                            id: string;
+                                            children: {
+                                                text: string;
+                                            }[];
+                                        }[];
                                     })[];
                                 };
+                                /** @enum {string} */
+                                actionType: "replace" | "insert_below";
+                                /** @enum {string} */
+                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                baseUpdatedAt: string;
+                                targetBlockIds: string[];
+                                appliedAt: string | null;
+                                dismissedAt: string | null;
+                                invalidatedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                            allowedApplyModes: string[];
+                        };
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Quota exceeded or duplicate */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ai/proposals/{proposalId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply a document change proposal */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    proposalId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: date-time */
+                        baseUpdatedAt: string;
+                        /** @enum {string} */
+                        mode: "replace" | "insert_below";
+                    };
+                };
+            };
+            responses: {
+                /** @description Applied proposal */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            document: {
+                                id: string;
+                                workspaceId: string;
+                                title: string;
+                                /** @enum {string} */
+                                type: "general_paper" | "proposal" | "skripsi";
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
+                                        /** @enum {string} */
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                            proposal: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                proposalJson: {
+                                    id: string;
+                                    targetBlockIds: string[];
+                                    /** @enum {string} */
+                                    action: "replace" | "insert_below";
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        id: string;
+                                        level: 1 | 2 | 3;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet-list";
+                                        id: string;
+                                        children: {
+                                            /** @enum {string} */
+                                            type: "list-item";
+                                            id: string;
+                                            children: {
+                                                text: string;
+                                            }[];
+                                        }[];
+                                    })[];
+                                };
+                                /** @enum {string} */
+                                actionType: "replace" | "insert_below";
+                                /** @enum {string} */
+                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                baseUpdatedAt: string;
+                                targetBlockIds: string[];
+                                appliedAt: string | null;
+                                dismissedAt: string | null;
+                                invalidatedAt: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ai/proposals/{proposalId}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a document change proposal */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    proposalId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dismissed proposal */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            proposal: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                proposalJson: {
+                                    id: string;
+                                    targetBlockIds: string[];
+                                    /** @enum {string} */
+                                    action: "replace" | "insert_below";
+                                    nodes: ({
+                                        /** @enum {string} */
+                                        type: "heading";
+                                        id: string;
+                                        level: 1 | 2 | 3;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "paragraph";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    } | {
+                                        /** @enum {string} */
+                                        type: "bullet-list";
+                                        id: string;
+                                        children: {
+                                            /** @enum {string} */
+                                            type: "list-item";
+                                            id: string;
+                                            children: {
+                                                text: string;
+                                            }[];
+                                        }[];
+                                    })[];
+                                };
+                                /** @enum {string} */
+                                actionType: "replace" | "insert_below";
+                                /** @enum {string} */
+                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                baseUpdatedAt: string;
+                                targetBlockIds: string[];
+                                appliedAt: string | null;
+                                dismissedAt: string | null;
+                                invalidatedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };

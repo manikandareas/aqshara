@@ -2,8 +2,19 @@
   "active_plan": "/Users/vitoandareasmanik/Development/project/aqshara-app/.sisyphus/plans/sprint-2-api-worker.md",
   "started_at": "2026-03-24T16:36:59.028Z",
   "session_ids": [
-    "ses_2df7b9b02ffeQUn3B9eYU8Pw6B"
+    "ses_2df7b9b02ffeQUn3B9eYU8Pw6B",
+    "ses_2d77b2872ffeE6sDkydcIt5yA5"
   ],
   "plan_name": "sprint-2-api-worker",
-  "agent": "atlas"
+  "agent": "atlas",
+  "task_sessions": {
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "Plan Compliance Audit — oracle",
+      "session_id": "ses_2d77b2872ffeE6sDkydcIt5yA5",
+      "agent": "oracle",
+      "updated_at": "2026-03-26T05:05:09.203Z"
+    }
+  }
 }
