@@ -11,7 +11,10 @@
     "check-types": "tsc --noEmit",
     "test": "tsc -p tsconfig.json && node --test \"dist/src/**/*.test.js\"",
     "spec:generate": "tsc -p tsconfig.json && node dist/scripts/generate-openapi.js",
-    "clerk:backfill": "tsc -p tsconfig.json && node dist/scripts/backfill-clerk-users.js"
+    "clerk:backfill": "tsc -p tsconfig.json && node dist/scripts/backfill-clerk-users.js",
+    "smoke:readiness": "tsx scripts/smoke-readiness.ts",
+    "smoke:providers": "tsx scripts/smoke-providers.ts",
+    "smoke:exports": "tsx scripts/smoke-exports.ts"
   },
   "dependencies": {
     "@aqshara/api-spec": "workspace:*",

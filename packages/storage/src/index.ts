@@ -6,11 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import {
-  getR2Config,
-  getR2Endpoint,
-  type R2Config,
-} from "@aqshara/config";
+import { getR2Config, getR2Endpoint, type R2Config } from "@aqshara/config";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -26,12 +22,16 @@ export function createStorageKey(...segments: string[]) {
 
 /** Root directory for persisted export files (DOCX). Override with AQSHARA_EXPORTS_DIR. */
 export function getExportsRootDir(): string {
-  return process.env.AQSHARA_EXPORTS_DIR ?? join(process.cwd(), ".data", "exports");
+  return (
+    process.env.AQSHARA_EXPORTS_DIR ?? join(process.cwd(), ".data", "exports")
+  );
 }
 
 /** Root for source originals and artifacts when R2 is not configured (local dev / tests). */
 export function getSourcesRootDir(): string {
-  return process.env.AQSHARA_SOURCES_DIR ?? join(process.cwd(), ".data", "sources");
+  return (
+    process.env.AQSHARA_SOURCES_DIR ?? join(process.cwd(), ".data", "sources")
+  );
 }
 
 /** Write binary object under the exports root. `key` is relative (e.g. userId/exportId.docx). */
@@ -39,14 +39,64 @@ export async function writeExportFile(
   key: string,
   data: Buffer,
 ): Promise<void> {
+  const config = getR2Config();
+  if (config) {
+    const client = getR2S3Client(config);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        Body: data,
+        ContentType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    return;
+  }
+
   const fullPath = join(getExportsRootDir(), key);
   await mkdir(dirname(fullPath), { recursive: true });
   await writeFile(fullPath, data);
 }
 
 export async function readExportFile(key: string): Promise<Buffer> {
+  const config = getR2Config();
+  if (config) {
+    const client = getR2S3Client(config);
+    const out = await client.send(
+      new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+    );
+    const bytes = await out.Body?.transformToByteArray();
+    if (!bytes) {
+      return Buffer.alloc(0);
+    }
+    return Buffer.from(bytes);
+  }
+
   const fullPath = join(getExportsRootDir(), key);
   return readFile(fullPath);
+}
+
+export async function presignGetExportObject(input: {
+  key: string;
+  expiresSeconds?: number;
+  filename?: string;
+}): Promise<string> {
+  const config = getR2Config();
+  if (!config) {
+    throw new Error("R2 object storage is not configured");
+  }
+  const client = getR2S3Client(config);
+  const cmd = new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: input.key,
+    ResponseContentDisposition: input.filename
+      ? `attachment; filename="${input.filename}"`
+      : undefined,
+  });
+  return getSignedUrl(client, cmd, {
+    expiresIn: input.expiresSeconds ?? 900,
+  });
 }
 
 let r2Client: S3Client | undefined;
@@ -112,7 +162,9 @@ export async function presignGetSourceObject(input: {
   });
 }
 
-export async function headSourceObject(key: string): Promise<StorageObject | null> {
+export async function headSourceObject(
+  key: string,
+): Promise<StorageObject | null> {
   const config = getR2Config();
   if (config) {
     const client = getR2S3Client(config);
@@ -124,7 +176,10 @@ export async function headSourceObject(key: string): Promise<StorageObject | nul
       const contentType = out.ContentType ?? "application/octet-stream";
       return { key, contentType, size };
     } catch (e: unknown) {
-      const name = e && typeof e === "object" && "name" in e ? String((e as { name: string }).name) : "";
+      const name =
+        e && typeof e === "object" && "name" in e
+          ? String((e as { name: string }).name)
+          : "";
       if (name === "NotFound" || name === "NoSuchKey") {
         return null;
       }

@@ -1,10 +1,17 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { logLaunchEvent } from "@aqshara/observability";
-import { readExportFile } from "@aqshara/storage";
+import {
+  readExportFile,
+  isR2ObjectStorageConfigured,
+  presignGetExportObject,
+} from "@aqshara/storage";
 import { ErrorSchema } from "../openapi/schemas/common.js";
 import { documentParamsSchema } from "../openapi/schemas/documents.js";
-import { ExportSchema, PreflightWarningSchema } from "../openapi/schemas/exports.js";
+import {
+  ExportSchema,
+  PreflightWarningSchema,
+} from "../openapi/schemas/exports.js";
 import type { ApiEnv } from "../hono-env.js";
 import type { AppExport } from "../repositories/app-repository.types.js";
 import {
@@ -210,6 +217,12 @@ const downloadExportRoute = createRoute({
           },
       },
     },
+    302: {
+      description: "Redirect to presigned URL for download",
+      headers: z.object({
+        Location: z.string().openapi({ description: "Presigned URL" }),
+      }),
+    },
     401: {
       description: "Unauthorized",
       content: { "application/json": { schema: ErrorSchema } },
@@ -230,7 +243,11 @@ export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
     const documentId = c.req.param("documentId");
     if (!documentId) {
       return c.json(
-        createErrorPayload("bad_request", "Missing documentId", getRequestId(c)),
+        createErrorPayload(
+          "bad_request",
+          "Missing documentId",
+          getRequestId(c),
+        ),
         400,
       );
     }
@@ -316,11 +333,7 @@ export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
         message,
       });
       return c.json(
-        createErrorPayload(
-          "service_unavailable",
-          message,
-          getRequestId(c),
-        ),
+        createErrorPayload("service_unavailable", message, getRequestId(c)),
         503,
       );
     }
@@ -474,11 +487,7 @@ export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
         message,
       });
       return c.json(
-        createErrorPayload(
-          "service_unavailable",
-          message,
-          getRequestId(c),
-        ),
+        createErrorPayload("service_unavailable", message, getRequestId(c)),
         503,
       );
     }
@@ -488,7 +497,11 @@ export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
     }
 
     return c.json(
-      createErrorPayload("internal_error", "Unexpected retry result", getRequestId(c)),
+      createErrorPayload(
+        "internal_error",
+        "Unexpected retry result",
+        getRequestId(c),
+      ),
       500,
     );
   }) as never);
@@ -522,9 +535,36 @@ export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
       );
     }
 
+    const filename = `export-${exportId}.docx`;
+
+    if (isR2ObjectStorageConfigured()) {
+      try {
+        const url = await presignGetExportObject({
+          key: exp.storageKey,
+          filename,
+        });
+        return c.redirect(url, 302);
+      } catch (err) {
+        logApiErrorEvent({
+          path: c.req.path,
+          requestId: getRequestId(c),
+          code: "export_file_presign_failed",
+          failureClass: "system",
+          exportId,
+        });
+        return c.json(
+          createErrorPayload(
+            "not_found",
+            "Export file could not be read",
+            getRequestId(c),
+          ),
+          404,
+        );
+      }
+    }
+
     try {
       const buffer = await readExportFile(exp.storageKey);
-      const filename = `export-${exportId}.docx`;
       c.header(
         "Content-Type",
         exp.contentType ??
