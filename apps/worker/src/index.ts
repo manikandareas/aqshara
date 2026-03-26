@@ -5,9 +5,12 @@ import { createLogger } from "@aqshara/observability";
 import {
   exportDocxJobName,
   exportDocxPayloadSchema,
+  parseSourceJobName,
+  parseSourcePayloadSchema,
   queueNames,
 } from "@aqshara/queue";
 import { processExportDocxJob } from "./jobs/export-docx.js";
+import { processSourceParseJob } from "./jobs/source-parse.js";
 
 loadWorkspaceEnv();
 
@@ -36,17 +39,53 @@ const exportWorker = new Worker(
   { connection },
 );
 
+const parseSourceWorker = new Worker(
+  queueNames.parseSource,
+  async (job: Job) => {
+    if (job.name !== parseSourceJobName) {
+      throw new Error(`No handler registered for job ${job.name}`);
+    }
+
+    const parsed = parseSourcePayloadSchema.safeParse(job.data);
+    if (!parsed.success) {
+      throw new UnrecoverableError(
+        `Invalid parse_source job payload: ${parsed.error.message}`,
+      );
+    }
+
+    await processSourceParseJob(parsed.data, String(job.id ?? ""), {
+      attemptsMade: job.attemptsMade,
+      maxAttempts: job.opts.attempts ?? 1,
+    });
+  },
+  { connection },
+);
+
 exportWorker.on("ready", () => {
   logger.info(`Worker ready for queue ${queueNames.exportDocx}`);
+});
+
+parseSourceWorker.on("ready", () => {
+  logger.info(`Worker ready for queue ${queueNames.parseSource}`);
 });
 
 exportWorker.on("failed", (job, error) => {
   logger.error(`Job ${job?.id ?? "unknown"} failed`, error);
 });
 
+parseSourceWorker.on("failed", (job, error) => {
+  logger.error(`Job ${job?.id ?? "unknown"} failed`, error);
+});
+
 exportWorker.on("completed", (job) => {
   logger.info(
     `Job ${job.id} completed exportId=${(job.data as { exportId?: string })?.exportId ?? ""}`,
+  );
+});
+
+parseSourceWorker.on("completed", (job) => {
+  logger.info(
+    `Job ${job.id} completed sourceId=${(job.data as { sourceId?: string })?.sourceId ?? ""}`,
   );
 });
 
@@ -61,8 +100,8 @@ async function shutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}; closing worker`);
 
   try {
-    await exportWorker.close();
-    logger.info("Worker closed");
+    await Promise.all([exportWorker.close(), parseSourceWorker.close()]);
+    logger.info("Workers closed");
     process.exit(0);
   } catch (error) {
     logger.error("Worker shutdown failed", error);

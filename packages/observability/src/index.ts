@@ -11,6 +11,7 @@ export type ErrorEventInput = {
   userId?: string;
   documentId?: string;
   exportId?: string;
+  sourceId?: string;
   path?: string;
   [key: string]: unknown;
 };

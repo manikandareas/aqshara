@@ -1,23 +1,29 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { createDatabase } from "./index.js";
-import { exportsTable, monthlyUsageCounters } from "./schema.js";
+import { monthlyUsageCounters, sourcesTable } from "./schema.js";
 
 type Db = ReturnType<typeof createDatabase>;
 
-export async function getExportJobRow(db: Db, exportId: string) {
+export async function getSourceJobRow(db: Db, sourceId: string) {
   const row = (
-    await db.select().from(exportsTable).where(eq(exportsTable.id, exportId)).limit(1)
+    await db
+      .select()
+      .from(sourcesTable)
+      .where(
+        and(eq(sourcesTable.id, sourceId), isNull(sourcesTable.deletedAt)),
+      )
+      .limit(1)
   )[0];
   return row ?? null;
 }
 
-export async function markExportProcessing(
+export async function markSourceProcessing(
   db: Db,
-  input: { exportId: string; bullmqJobId: string },
+  input: { sourceId: string; bullmqJobId: string },
 ) {
   const now = new Date();
   const [updated] = await db
-    .update(exportsTable)
+    .update(sourcesTable)
     .set({
       status: "processing",
       bullmqJobId: input.bullmqJobId,
@@ -25,27 +31,33 @@ export async function markExportProcessing(
       updatedAt: now,
     })
     .where(
-      and(eq(exportsTable.id, input.exportId), eq(exportsTable.status, "queued")),
+      and(
+        eq(sourcesTable.id, input.sourceId),
+        eq(sourcesTable.status, "queued"),
+        isNull(sourcesTable.deletedAt),
+      ),
     )
     .returning();
   return updated ?? null;
 }
 
-export async function markExportReady(
+export async function markSourceReady(
   db: Db,
   input: {
-    exportId: string;
-    storageKey: string;
-    contentType: string;
-    fileSizeBytes: number;
+    sourceId: string;
+    parsedTextStorageKey: string;
+    pageCount: number;
+    parsedTextSizeBytes: number;
   },
 ) {
   return db.transaction(async (tx) => {
     const current = (
       await tx
         .select()
-        .from(exportsTable)
-        .where(eq(exportsTable.id, input.exportId))
+        .from(sourcesTable)
+        .where(
+          and(eq(sourcesTable.id, input.sourceId), isNull(sourcesTable.deletedAt)),
+        )
         .limit(1)
     )[0];
 
@@ -56,18 +68,18 @@ export async function markExportReady(
     const now = new Date();
 
     await tx
-      .update(exportsTable)
+      .update(sourcesTable)
       .set({
         status: "ready",
-        storageKey: input.storageKey,
-        contentType: input.contentType,
-        fileSizeBytes: input.fileSizeBytes,
+        parsedTextStorageKey: input.parsedTextStorageKey,
+        parsedTextSizeBytes: input.parsedTextSizeBytes,
+        pageCount: input.pageCount,
         readyAt: now,
         updatedAt: now,
         errorMessage: null,
         errorCode: null,
       })
-      .where(eq(exportsTable.id, input.exportId));
+      .where(eq(sourcesTable.id, input.sourceId));
 
     const counters = (
       await tx
@@ -82,11 +94,14 @@ export async function markExportReady(
         .limit(1)
     )[0];
 
+    const storageDelta = input.parsedTextSizeBytes;
+
     if (counters) {
       await tx
         .update(monthlyUsageCounters)
         .set({
-          exportsUsed: counters.exportsUsed + 1,
+          sourceUploadsUsed: counters.sourceUploadsUsed + 1,
+          storageUsedBytes: counters.storageUsedBytes + storageDelta,
           updatedAt: now,
         })
         .where(eq(monthlyUsageCounters.id, counters.id));
@@ -94,7 +109,8 @@ export async function markExportReady(
       await tx.insert(monthlyUsageCounters).values({
         userId: current.userId,
         period: current.billingPeriod,
-        exportsUsed: 1,
+        sourceUploadsUsed: 1,
+        storageUsedBytes: storageDelta,
       });
     }
 
@@ -102,17 +118,17 @@ export async function markExportReady(
   });
 }
 
-export async function markExportFailed(
+export async function markSourceFailed(
   db: Db,
   input: {
-    exportId: string;
+    sourceId: string;
     errorMessage: string;
     errorCode: string;
   },
 ) {
   const now = new Date();
   const [updated] = await db
-    .update(exportsTable)
+    .update(sourcesTable)
     .set({
       status: "failed",
       errorMessage: input.errorMessage,
@@ -121,8 +137,9 @@ export async function markExportFailed(
     })
     .where(
       and(
-        eq(exportsTable.id, input.exportId),
-        eq(exportsTable.status, "processing"),
+        eq(sourcesTable.id, input.sourceId),
+        eq(sourcesTable.status, "processing"),
+        isNull(sourcesTable.deletedAt),
       ),
     )
     .returning();
@@ -132,7 +149,7 @@ export async function markExportFailed(
   }
 
   const [anyRow] = await db
-    .update(exportsTable)
+    .update(sourcesTable)
     .set({
       status: "failed",
       errorMessage: input.errorMessage,
@@ -140,7 +157,11 @@ export async function markExportFailed(
       updatedAt: now,
     })
     .where(
-      and(eq(exportsTable.id, input.exportId), eq(exportsTable.status, "queued")),
+      and(
+        eq(sourcesTable.id, input.sourceId),
+        eq(sourcesTable.status, "queued"),
+        isNull(sourcesTable.deletedAt),
+      ),
     )
     .returning();
 

@@ -118,6 +118,35 @@ export type AppExport = {
   updatedAt: string;
 };
 
+export type SourceStatus = "queued" | "processing" | "ready" | "failed";
+
+export type AppSource = {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  billingPeriod: string;
+  status: SourceStatus;
+  storageKey: string;
+  parsedTextStorageKey: string | null;
+  /** Set when status is ready; used for storage accounting on delete. */
+  parsedTextSizeBytes: number | null;
+  mimeType: string;
+  originalFileName: string;
+  fileSizeBytes: number;
+  checksum: string;
+  pageCount: number | null;
+  bullmqJobId: string | null;
+  retryCount: number;
+  errorMessage: string | null;
+  errorCode: string | null;
+  processingStartedAt: string | null;
+  readyAt: string | null;
+  idempotencyKey: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AppRepository = {
   getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null>;
   getWorkspaceForUser(userId: string): Promise<Workspace | null>;
@@ -261,4 +290,93 @@ export type AppRepository = {
     errorCode: string;
     errorMessage: string;
   }): Promise<AppExport | null>;
+
+  assertSourceRegistrationAllowed(userId: string): Promise<
+    | { ok: true }
+    | { ok: false; reason: "quota_exceeded" | "too_many_in_flight" }
+  >;
+
+  getSourceByUserIdempotency(input: {
+    userId: string;
+    idempotencyKey: string;
+  }): Promise<AppSource | null>;
+
+  findReadySourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null>;
+
+  insertQueuedSourceWithLink(input: {
+    id: string;
+    workspaceId: string;
+    userId: string;
+    documentId: string;
+    billingPeriod: string;
+    storageKey: string;
+    mimeType: string;
+    originalFileName: string;
+    fileSizeBytes: number;
+    checksum: string;
+    pageCount: number;
+    idempotencyKey: string | null;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+  >;
+
+  createDocumentSourceLink(input: {
+    documentId: string;
+    sourceId: string;
+  }): Promise<{ ok: true } | { ok: false; reason: "duplicate_link" }>;
+
+  getSourceForUser(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<AppSource | null>;
+
+  listSourcesForDocument(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<AppSource[]>;
+
+  /** First document linked to this source that the user can access, if any. */
+  getDocumentIdForSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<string | null>;
+
+  setSourceBullmqJobId(input: {
+    userId: string;
+    sourceId: string;
+    bullmqJobId: string;
+  }): Promise<AppSource | null>;
+
+  markSourceFailedFromApi(input: {
+    userId: string;
+    sourceId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppSource | null>;
+
+  retryFailedSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  >;
+
+  softDeleteSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    { ok: true } | { ok: false; reason: "not_found" | "already_deleted" }
+  >;
 };

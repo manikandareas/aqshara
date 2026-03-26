@@ -14,6 +14,7 @@ import type {
   AppDocumentChangeProposal,
   AppExport,
   AppRepository,
+  AppSource,
   AppUser,
   AuthIdentity,
   DocumentListOptions,
@@ -26,10 +27,12 @@ import { StaleDocumentSaveError } from "../repositories/app-repository.types.js"
 import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
 import {
   MAX_IN_FLIGHT_EXPORTS_PER_USER,
+  MAX_IN_FLIGHT_SOURCES_PER_USER,
   PLAN_EXPORTS_LIMIT,
   PLAN_AI_ACTIONS_LIMIT,
+  PLAN_SOURCE_UPLOADS_LIMIT,
 } from "../lib/plan-limits.js";
-import type { ExportDocxPayload } from "@aqshara/queue";
+import type { ExportDocxPayload, ParseSourcePayload } from "@aqshara/queue";
 import { createApiServices } from "../services/index.js";
 import { createLogger } from "../lib/logger.js";
 import { AiService, FakeAiProvider } from "../lib/ai/index.js";
@@ -78,6 +81,8 @@ type MemoryState = {
   aiActionsReserved: AiActionReserved[];
   documentChangeProposals: AppDocumentChangeProposal[];
   exports: AppExport[];
+  sources: AppSource[];
+  sourceLinks: { documentId: string; sourceId: string }[];
 };
 
 export class MemoryRepository implements AppRepository {
@@ -90,6 +95,8 @@ export class MemoryRepository implements AppRepository {
     aiActionsReserved: [],
     documentChangeProposals: [],
     exports: [],
+    sources: [],
+    sourceLinks: [],
   };
 
   private countInFlightExports(userId: string, period: string): number {
@@ -106,6 +113,23 @@ export class MemoryRepository implements AppRepository {
       (c) => c.userId === userId && c.period === period,
     );
     return counters?.exportsUsed ?? 0;
+  }
+
+  private countInFlightSources(userId: string, period: string): number {
+    return this.state.sources.filter(
+      (s) =>
+        s.userId === userId &&
+        s.billingPeriod === period &&
+        !s.deletedAt &&
+        (s.status === "queued" || s.status === "processing"),
+    ).length;
+  }
+
+  private getSourceUploadsUsed(userId: string, period: string): number {
+    const counters = this.state.monthlyUsageCounters.find(
+      (c) => c.userId === userId && c.period === period,
+    );
+    return counters?.sourceUploadsUsed ?? 0;
   }
 
   async getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
@@ -755,6 +779,348 @@ export class MemoryRepository implements AppRepository {
     return { ok: true, export: current };
   }
 
+  async assertSourceRegistrationAllowed(
+    userId: string,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; reason: "quota_exceeded" | "too_many_in_flight" }
+  > {
+    const period = getCurrentBillingPeriod();
+    if (
+      this.countInFlightSources(userId, period) >=
+      MAX_IN_FLIGHT_SOURCES_PER_USER
+    ) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+    if (
+      this.getSourceUploadsUsed(userId, period) >= PLAN_SOURCE_UPLOADS_LIMIT
+    ) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+    return { ok: true };
+  }
+
+  async getSourceByUserIdempotency(input: {
+    userId: string;
+    idempotencyKey: string;
+  }): Promise<AppSource | null> {
+    return (
+      this.state.sources.find(
+        (s) =>
+          s.userId === input.userId &&
+          s.idempotencyKey === input.idempotencyKey &&
+          !s.deletedAt,
+      ) ?? null
+    );
+  }
+
+  async findReadySourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null> {
+    const matches = this.state.sources.filter(
+      (s) =>
+        s.workspaceId === input.workspaceId &&
+        s.checksum === input.checksum &&
+        s.status === "ready" &&
+        !s.deletedAt,
+    );
+    matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return matches[0] ?? null;
+  }
+
+  async insertQueuedSourceWithLink(input: {
+    id: string;
+    workspaceId: string;
+    userId: string;
+    documentId: string;
+    billingPeriod: string;
+    storageKey: string;
+    mimeType: string;
+    originalFileName: string;
+    fileSizeBytes: number;
+    checksum: string;
+    pageCount: number;
+    idempotencyKey: string | null;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+  > {
+    if (input.idempotencyKey) {
+      const replay = await this.getSourceByUserIdempotency({
+        userId: input.userId,
+        idempotencyKey: input.idempotencyKey,
+      });
+      if (replay) {
+        return { ok: false, reason: "idempotency_replay", source: replay };
+      }
+    }
+
+    const now = new Date().toISOString();
+    const source: AppSource = {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      billingPeriod: input.billingPeriod,
+      status: "queued",
+      storageKey: input.storageKey,
+      parsedTextStorageKey: null,
+      parsedTextSizeBytes: null,
+      mimeType: input.mimeType,
+      originalFileName: input.originalFileName,
+      fileSizeBytes: input.fileSizeBytes,
+      checksum: input.checksum,
+      pageCount: input.pageCount,
+      bullmqJobId: null,
+      retryCount: 0,
+      errorMessage: null,
+      errorCode: null,
+      processingStartedAt: null,
+      readyAt: null,
+      idempotencyKey: input.idempotencyKey,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.state.sources.unshift(source);
+    this.state.sourceLinks.push({
+      documentId: input.documentId,
+      sourceId: source.id,
+    });
+
+    let counters = this.state.monthlyUsageCounters.find(
+      (c) => c.userId === input.userId && c.period === input.billingPeriod,
+    );
+    if (!counters) {
+      counters = {
+        id: randomUUID(),
+        userId: input.userId,
+        period: input.billingPeriod,
+        aiActionsUsed: 0,
+        sourceUploadsUsed: 0,
+        exportsUsed: 0,
+        storageUsedBytes: 0,
+        updatedAt: now,
+      };
+      this.state.monthlyUsageCounters.push(counters);
+    }
+    counters.storageUsedBytes += input.fileSizeBytes;
+    counters.updatedAt = now;
+
+    return { ok: true, source };
+  }
+
+  async createDocumentSourceLink(input: {
+    documentId: string;
+    sourceId: string;
+  }): Promise<{ ok: true } | { ok: false; reason: "duplicate_link" }> {
+    const exists = this.state.sourceLinks.some(
+      (l) =>
+        l.documentId === input.documentId && l.sourceId === input.sourceId,
+    );
+    if (exists) {
+      return { ok: false, reason: "duplicate_link" };
+    }
+    this.state.sourceLinks.push({
+      documentId: input.documentId,
+      sourceId: input.sourceId,
+    });
+    return { ok: true };
+  }
+
+  async getSourceForUser(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<AppSource | null> {
+    return (
+      this.state.sources.find(
+        (s) =>
+          s.id === input.sourceId &&
+          s.userId === input.userId &&
+          !s.deletedAt,
+      ) ?? null
+    );
+  }
+
+  async listSourcesForDocument(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<AppSource[]> {
+    const doc = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+    if (!doc) {
+      return [];
+    }
+    const ids = this.state.sourceLinks
+      .filter((l) => l.documentId === input.documentId)
+      .map((l) => l.sourceId);
+    const rows = this.state.sources.filter(
+      (s) => ids.includes(s.id) && !s.deletedAt,
+    );
+    rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return rows;
+  }
+
+  async getDocumentIdForSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<string | null> {
+    const source = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+    if (!source) {
+      return null;
+    }
+    const workspace = await this.getWorkspaceForUser(input.userId);
+    if (!workspace) {
+      return null;
+    }
+    for (const link of this.state.sourceLinks) {
+      if (link.sourceId !== input.sourceId) {
+        continue;
+      }
+      const doc = this.state.documents.find((d) => d.id === link.documentId);
+      if (doc && doc.workspaceId === workspace.id) {
+        return link.documentId;
+      }
+    }
+    return null;
+  }
+
+  async setSourceBullmqJobId(input: {
+    userId: string;
+    sourceId: string;
+    bullmqJobId: string;
+  }): Promise<AppSource | null> {
+    const s = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+    if (!s) {
+      return null;
+    }
+    s.bullmqJobId = input.bullmqJobId;
+    s.updatedAt = new Date().toISOString();
+    return s;
+  }
+
+  async markSourceFailedFromApi(input: {
+    userId: string;
+    sourceId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppSource | null> {
+    const s = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+    if (!s || s.status !== "queued") {
+      return null;
+    }
+    s.status = "failed";
+    s.errorCode = input.errorCode;
+    s.errorMessage = input.errorMessage;
+    s.updatedAt = new Date().toISOString();
+    return s;
+  }
+
+  async retryFailedSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const current = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+
+    if (!current) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (current.status !== "failed") {
+      return { ok: false, reason: "not_failed" };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if (
+      this.countInFlightSources(input.userId, period) >=
+      MAX_IN_FLIGHT_SOURCES_PER_USER
+    ) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if (
+      this.getSourceUploadsUsed(input.userId, period) >=
+      PLAN_SOURCE_UPLOADS_LIMIT
+    ) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    current.status = "queued";
+    current.bullmqJobId = null;
+    current.errorMessage = null;
+    current.errorCode = null;
+    current.processingStartedAt = null;
+    current.retryCount += 1;
+    current.updatedAt = new Date().toISOString();
+
+    return { ok: true, source: current };
+  }
+
+  async softDeleteSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    { ok: true } | { ok: false; reason: "not_found" | "already_deleted" }
+  > {
+    const s = this.state.sources.find((x) => x.id === input.sourceId);
+    if (!s || s.userId !== input.userId) {
+      return { ok: false, reason: "not_found" };
+    }
+    if (s.deletedAt) {
+      return { ok: false, reason: "already_deleted" };
+    }
+
+    const now = new Date().toISOString();
+    const storageSubtract =
+      s.fileSizeBytes + (s.parsedTextSizeBytes ?? 0);
+
+    this.state.sourceLinks = this.state.sourceLinks.filter(
+      (l) => l.sourceId !== input.sourceId,
+    );
+
+    const counters = this.state.monthlyUsageCounters.find(
+      (c) => c.userId === s.userId && c.period === s.billingPeriod,
+    );
+    if (counters && storageSubtract > 0) {
+      counters.storageUsedBytes = Math.max(
+        0,
+        counters.storageUsedBytes - storageSubtract,
+      );
+      counters.updatedAt = now;
+    }
+
+    s.deletedAt = now;
+    s.updatedAt = now;
+
+    return { ok: true };
+  }
+
   async invalidateStaleProposals(input: {
     documentId: string;
     baseRevisionUpdatedAt: string;
@@ -805,7 +1171,7 @@ export function createMemoryAppContext(): AppContext {
         aiActionsReserved: 0,
         aiActionsRemaining: PLAN_AI_ACTIONS_LIMIT,
         exportsRemaining: PLAN_EXPORTS_LIMIT,
-        sourceUploadsRemaining: 0,
+        sourceUploadsRemaining: PLAN_SOURCE_UPLOADS_LIMIT,
       };
     }
     const period = getCurrentBillingPeriod();
@@ -825,6 +1191,11 @@ export function createMemoryAppContext(): AppContext {
 
     const exportsUsed = counters?.exportsUsed ?? 0;
     const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
+    const sourceUploadsUsed = counters?.sourceUploadsUsed ?? 0;
+    const sourceUploadsRemaining = Math.max(
+      0,
+      PLAN_SOURCE_UPLOADS_LIMIT - sourceUploadsUsed,
+    );
 
     return {
       period,
@@ -832,7 +1203,7 @@ export function createMemoryAppContext(): AppContext {
       aiActionsReserved: reserved,
       aiActionsRemaining: remaining,
       exportsRemaining,
-      sourceUploadsRemaining: 0,
+      sourceUploadsRemaining,
     };
   };
 
@@ -840,11 +1211,16 @@ export function createMemoryAppContext(): AppContext {
     jobId: `mem-${payload.exportId}`,
   });
 
+  const enqueueParseSource = async (payload: ParseSourcePayload) => ({
+    jobId: `mem-${payload.sourceId}`,
+  });
+
   const services = createApiServices({
     repository,
     aiService,
     getUsage,
     enqueueExportDocx,
+    enqueueParseSource,
   });
 
   return {

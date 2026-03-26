@@ -5,6 +5,9 @@ function getApiErrorDomain(path: string): string {
   if (path.includes("/exports")) {
     return "export";
   }
+  if (path.includes("/sources")) {
+    return "source";
+  }
   if (path.includes("/ai/") || path.includes("/outline/")) {
     return "ai";
   }

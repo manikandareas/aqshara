@@ -9,6 +9,14 @@ const envSchema = z.object({
   REDIS_HOST: z.string().default("127.0.0.1"),
   REDIS_PORT: z.coerce.number().default(6379),
   DATABASE_URL: z.string().default("postgres://postgres:postgres@localhost:5432/aqshara"),
+  /** Cloudflare R2 (S3-compatible). When unset, source uploads use local dev storage. */
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().optional(),
+  /** Mistral OCR (`POST /v1/ocr`). Optional in dev/tests. */
+  MISTRAL_API_KEY: z.string().optional(),
+  MISTRAL_API_BASE_URL: z.url().default("https://api.mistral.ai"),
 });
 
 const env = envSchema.parse({
@@ -19,6 +27,12 @@ const env = envSchema.parse({
   REDIS_HOST: process.env.REDIS_HOST,
   REDIS_PORT: process.env.REDIS_PORT,
   DATABASE_URL: process.env.DATABASE_URL,
+  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID,
+  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
+  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
+  R2_BUCKET: process.env.R2_BUCKET,
+  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+  MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL,
 });
 
 let redisClient: RedisClient | undefined;
@@ -80,4 +94,42 @@ export function getRedisClient(): RedisClient {
 
 export function getDatabaseUrl() {
   return env.DATABASE_URL;
+}
+
+export type R2Config = {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+};
+
+export function getR2Config(): R2Config | null {
+  const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } =
+    env;
+  if (
+    !R2_ACCOUNT_ID ||
+    !R2_ACCESS_KEY_ID ||
+    !R2_SECRET_ACCESS_KEY ||
+    !R2_BUCKET
+  ) {
+    return null;
+  }
+  return {
+    accountId: R2_ACCOUNT_ID,
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+    bucket: R2_BUCKET,
+  };
+}
+
+export function getR2Endpoint(accountId: string) {
+  return `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
+export function getMistralApiKey() {
+  return env.MISTRAL_API_KEY ?? null;
+}
+
+export function getMistralApiBaseUrl() {
+  return env.MISTRAL_API_BASE_URL;
 }

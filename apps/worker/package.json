@@ -20,7 +20,8 @@
     "@aqshara/storage": "workspace:*",
     "bullmq": "^5.63.0",
     "docx": "^9.5.1",
-    "drizzle-orm": "^0.44.6"
+    "drizzle-orm": "^0.44.6",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "@aqshara/eslint-config": "workspace:*",

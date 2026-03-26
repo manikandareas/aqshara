@@ -20,11 +20,13 @@ import type {
   AppUser,
 } from "../repositories/app-repository.types.js";
 import { enqueueExportDocxJob } from "./export-queue.js";
+import { enqueueParseSourceJob } from "./source-parse-queue.js";
 import { createApiServices, type ApiServices } from "../services/index.js";
 import type { AppUsage } from "./api-types.js";
 import {
   PLAN_AI_ACTIONS_LIMIT,
   PLAN_EXPORTS_LIMIT,
+  PLAN_SOURCE_UPLOADS_LIMIT,
 } from "./plan-limits.js";
 import {
   toProvisioningIdentity,
@@ -205,6 +207,7 @@ export function createProductionAppContext(): AppContext {
     )[0];
     const used = counters?.aiActionsUsed ?? 0;
     const exportsUsed = counters?.exportsUsed ?? 0;
+    const sourceUploadsUsed = counters?.sourceUploadsUsed ?? 0;
 
     const reservedRecord = (
       await db
@@ -222,6 +225,10 @@ export function createProductionAppContext(): AppContext {
 
     const remaining = Math.max(0, aiLimit - (used + reserved));
     const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
+    const sourceUploadsRemaining = Math.max(
+      0,
+      PLAN_SOURCE_UPLOADS_LIMIT - sourceUploadsUsed,
+    );
 
     return {
       period,
@@ -229,7 +236,7 @@ export function createProductionAppContext(): AppContext {
       aiActionsReserved: reserved,
       aiActionsRemaining: remaining,
       exportsRemaining,
-      sourceUploadsRemaining: 0,
+      sourceUploadsRemaining,
     };
   };
 
@@ -238,6 +245,7 @@ export function createProductionAppContext(): AppContext {
     aiService,
     getUsage,
     enqueueExportDocx: enqueueExportDocxJob,
+    enqueueParseSource: enqueueParseSourceJob,
   });
 
   return {

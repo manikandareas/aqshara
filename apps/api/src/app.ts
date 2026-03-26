@@ -20,6 +20,7 @@ import { registerSessionRoutes } from "./routes/session.js";
 import { registerDocumentRoutes } from "./routes/documents.js";
 import { registerProposalRoutes } from "./routes/proposals.js";
 import { registerExportRoutes } from "./routes/exports.js";
+import { registerSourceRoutes } from "./routes/sources.js";
 
 export const apiFactory = createFactory<ApiEnv>();
 
@@ -56,6 +57,7 @@ export function createApp(context: AppContext) {
   registerDocumentRoutes(app);
   registerProposalRoutes(app);
   registerExportRoutes(app);
+  registerSourceRoutes(app);
 
   const openApiDocumentConfig = {
     openapi: "3.1.0",

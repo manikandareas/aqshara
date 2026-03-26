@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
-import { createStorageKey, writeExportFile } from "@aqshara/storage";
+import {
+  createStorageKey,
+  getSourcesRootDir,
+  sourceOriginalKey,
+  writeExportFile,
+} from "@aqshara/storage";
 import { createApp } from "./app.js";
 import { PLAN_EXPORTS_LIMIT } from "./lib/plan-limits.js";
 import { getCurrentBillingPeriod } from "./repositories/billing-period.js";
@@ -12,6 +17,34 @@ import {
   createMemoryAppContext,
   MemoryRepository,
 } from "./test-support/memory-app-context.js";
+
+const MINIMAL_PDF_BUFFER = Buffer.from(`%PDF-1.1
+1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj
+2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj
+3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R >>endobj
+4 0 obj<< /Length 44 >>stream
+BT
+/F1 24 Tf
+100 100 Td
+(Hello PDF) Tj
+ET
+endstream
+endobj
+xref
+0 5
+0000000000 65535 f 
+0000000010 00000 n 
+0000000063 00000 n 
+0000000122 00000 n 
+0000000212 00000 n 
+trailer<< /Root 1 0 R /Size 5 >>
+startxref
+312
+%%EOF`);
+
+function sha256Hex(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
 
 async function captureErrorEvents<T>(
   action: () => T | Promise<T>,
@@ -1455,6 +1488,9 @@ describe("API error events", () => {
     );
 
     assert.equal(firstSave.status, 200);
+    const staleBaseUpdatedAt = new Date(
+      new Date(document.updatedAt).getTime() - 1000,
+    ).toISOString();
 
     const { result: staleSaveResponse, events } = await captureErrorEvents(() =>
       app.request(`http://localhost/v1/documents/${document.id}/content`, {
@@ -1467,7 +1503,7 @@ describe("API error events", () => {
           contentJson: [
             { type: "paragraph", id: "b1", children: [{ text: "Stale" }] },
           ],
-          baseUpdatedAt: document.updatedAt,
+          baseUpdatedAt: staleBaseUpdatedAt,
         }),
       }),
     );
@@ -2011,5 +2047,259 @@ describe("DOCX exports API", () => {
     const retryBody = await retryRes.json();
     assert.equal(retryBody.export.status, "queued");
     assert.equal(retryBody.export.retryCount, 1);
+  });
+});
+
+describe("sources API", () => {
+  it("returns a source upload target when the source service issues one", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_sources_upload_url_1";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const originalCreateUploadUrl = context.services.sources.createUploadUrl;
+    context.services.sources.createUploadUrl = async () => ({
+      type: "ok",
+      sourceId: "src-upload-1",
+      storageKey: "sources/ws/src-upload-1/original.pdf",
+      uploadUrl: "https://example.test/upload",
+      expiresInSeconds: 900,
+    });
+
+    try {
+      const response = await app.request("http://localhost/v1/sources/upload-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({}),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as {
+        sourceId: string;
+        storageKey: string;
+        uploadUrl: string;
+        expiresInSeconds: number;
+      };
+      assert.equal(body.sourceId, "src-upload-1");
+      assert.equal(body.storageKey, "sources/ws/src-upload-1/original.pdf");
+      assert.equal(body.uploadUrl, "https://example.test/upload");
+      assert.equal(body.expiresInSeconds, 900);
+    } finally {
+      context.services.sources.createUploadUrl = originalCreateUploadUrl;
+    }
+  });
+
+  it("returns a frontend-safe source status payload without internal storage fields", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aqshara-sources-"));
+    const prevDir = process.env.AQSHARA_SOURCES_DIR;
+    process.env.AQSHARA_SOURCES_DIR = dir;
+
+    try {
+      const context = createMemoryAppContext();
+      const app = createApp(context);
+      const clerkId = "user_sources_status_1";
+
+      await app.request("http://localhost/webhooks/clerk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          createClerkUserEvent("user.created", { id: clerkId }),
+        ),
+      });
+
+      const meRes = await app.request("http://localhost/v1/me", {
+        headers: { "x-test-user-id": clerkId },
+      });
+      const {
+        user,
+        workspace,
+      } = (await meRes.json()) as {
+        user: { id: string };
+        workspace: { id: string };
+      };
+      void user;
+
+      const createRes = await app.request("http://localhost/v1/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ title: "Source Doc", type: "general_paper" }),
+      });
+      const { document: doc } = (await createRes.json()) as {
+        document: { id: string };
+      };
+
+      const sourceId = randomUUID();
+      const storageKey = sourceOriginalKey(workspace.id, sourceId);
+      const fullPath = join(getSourcesRootDir(), storageKey);
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, MINIMAL_PDF_BUFFER);
+
+      const registerRes = await app.request("http://localhost/v1/sources/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          documentId: doc.id,
+          sourceId,
+          storageKey,
+          originalFileName: "paper.pdf",
+          fileSizeBytes: MINIMAL_PDF_BUFFER.length,
+          checksum: sha256Hex(MINIMAL_PDF_BUFFER),
+          mimeType: "application/pdf",
+          idempotencyKey: "src-route-1",
+        }),
+      });
+      assert.equal(registerRes.status, 200);
+
+      const statusRes = await app.request(
+        `http://localhost/v1/sources/${sourceId}/status`,
+        {
+          headers: { "x-test-user-id": clerkId },
+        },
+      );
+      assert.equal(statusRes.status, 200);
+      const statusBody = (await statusRes.json()) as {
+        source: Record<string, unknown>;
+      };
+
+      assert.equal(statusBody.source.id, sourceId);
+      assert.equal(statusBody.source.status, "queued");
+      assert.equal(statusBody.source.originalFileName, "paper.pdf");
+      assert.ok(!("storageKey" in statusBody.source));
+      assert.ok(!("checksum" in statusBody.source));
+      assert.ok(!("bullmqJobId" in statusBody.source));
+      assert.ok(!("idempotencyKey" in statusBody.source));
+    } finally {
+      if (prevDir === undefined) {
+        delete process.env.AQSHARA_SOURCES_DIR;
+      } else {
+        process.env.AQSHARA_SOURCES_DIR = prevDir;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries failed sources and deletes them cleanly", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aqshara-sources-"));
+    const prevDir = process.env.AQSHARA_SOURCES_DIR;
+    process.env.AQSHARA_SOURCES_DIR = dir;
+
+    try {
+      const context = createMemoryAppContext();
+      const app = createApp(context);
+      const clerkId = "user_sources_retry_1";
+
+      await app.request("http://localhost/webhooks/clerk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          createClerkUserEvent("user.created", { id: clerkId }),
+        ),
+      });
+
+      const meRes = await app.request("http://localhost/v1/me", {
+        headers: { "x-test-user-id": clerkId },
+      });
+      const { workspace } = (await meRes.json()) as {
+        workspace: { id: string };
+      };
+
+      const createRes = await app.request("http://localhost/v1/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({ title: "Retry Source", type: "general_paper" }),
+      });
+      const { document: doc } = (await createRes.json()) as {
+        document: { id: string };
+      };
+
+      const sourceId = randomUUID();
+      const storageKey = sourceOriginalKey(workspace.id, sourceId);
+      const fullPath = join(getSourcesRootDir(), storageKey);
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, MINIMAL_PDF_BUFFER);
+
+      const registerRes = await app.request("http://localhost/v1/sources/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          documentId: doc.id,
+          sourceId,
+          storageKey,
+          originalFileName: "retry.pdf",
+          fileSizeBytes: MINIMAL_PDF_BUFFER.length,
+          checksum: sha256Hex(MINIMAL_PDF_BUFFER),
+          mimeType: "application/pdf",
+          idempotencyKey: "src-route-2",
+        }),
+      });
+      assert.equal(registerRes.status, 200);
+
+      const mem = context.repository as MemoryRepository;
+      const row = mem.state.sources.find((source) => source.id === sourceId);
+      assert.ok(row);
+      row.status = "failed";
+      row.errorCode = "storage_read_failed";
+      row.errorMessage = "simulated";
+
+      const retryRes = await app.request(
+        `http://localhost/v1/sources/${sourceId}/retry`,
+        {
+          method: "POST",
+          headers: { "x-test-user-id": clerkId },
+        },
+      );
+      assert.equal(retryRes.status, 200);
+      const retryBody = (await retryRes.json()) as {
+        source: { status: string; retryCount: number };
+      };
+      assert.equal(retryBody.source.status, "queued");
+      assert.equal(retryBody.source.retryCount, 1);
+
+      const deleteRes = await app.request(
+        `http://localhost/v1/sources/${sourceId}`,
+        {
+          method: "DELETE",
+          headers: { "x-test-user-id": clerkId },
+        },
+      );
+      assert.equal(deleteRes.status, 204);
+
+      const statusRes = await app.request(
+        `http://localhost/v1/sources/${sourceId}/status`,
+        {
+          headers: { "x-test-user-id": clerkId },
+        },
+      );
+      assert.equal(statusRes.status, 404);
+    } finally {
+      if (prevDir === undefined) {
+        delete process.env.AQSHARA_SOURCES_DIR;
+      } else {
+        process.env.AQSHARA_SOURCES_DIR = prevDir;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

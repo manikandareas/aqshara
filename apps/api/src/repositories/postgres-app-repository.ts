@@ -13,20 +13,25 @@ import {
   monthlyUsageCounters,
   aiActionsReserved,
   documentChangeProposals,
+  documentSourceLinks,
   exportsTable,
+  sourcesTable,
 } from "@aqshara/database";
-import { and, count, desc, eq, isNull, isNotNull, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { getCurrentBillingPeriod } from "./billing-period.js";
 import {
   PLAN_AI_ACTIONS_LIMIT,
   PLAN_EXPORTS_LIMIT,
   MAX_IN_FLIGHT_EXPORTS_PER_USER,
+  MAX_IN_FLIGHT_SOURCES_PER_USER,
+  PLAN_SOURCE_UPLOADS_LIMIT,
 } from "../lib/plan-limits.js";
 import type {
   AppDocument,
   AppDocumentChangeProposal,
   AppExport,
   AppRepository,
+  AppSource,
   AppUser,
   AuthIdentity,
   DocumentListOptions,
@@ -46,6 +51,34 @@ function toIsoString(value: Date | string | null): string | null {
   }
 
   return value instanceof Date ? value.toISOString() : value;
+}
+
+function toSourceRecord(row: typeof sourcesTable.$inferSelect): AppSource {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    userId: row.userId,
+    billingPeriod: row.billingPeriod,
+    status: row.status as AppSource["status"],
+    storageKey: row.storageKey,
+    parsedTextStorageKey: row.parsedTextStorageKey,
+    parsedTextSizeBytes: row.parsedTextSizeBytes,
+    mimeType: row.mimeType,
+    originalFileName: row.originalFileName,
+    fileSizeBytes: row.fileSizeBytes,
+    checksum: row.checksum,
+    pageCount: row.pageCount,
+    bullmqJobId: row.bullmqJobId,
+    retryCount: row.retryCount,
+    errorMessage: row.errorMessage,
+    errorCode: row.errorCode,
+    processingStartedAt: toIsoString(row.processingStartedAt),
+    readyAt: toIsoString(row.readyAt),
+    idempotencyKey: row.idempotencyKey,
+    deletedAt: toIsoString(row.deletedAt),
+    createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
+    updatedAt: toIsoString(row.updatedAt) ?? new Date().toISOString(),
+  };
 }
 
 function toExportRecord(row: typeof exportsTable.$inferSelect): AppExport {
@@ -1133,6 +1166,533 @@ export class PostgresAppRepository implements AppRepository {
     }
 
     return { ok: true, export: toExportRecord(row) };
+  }
+
+  private async countInFlightSources(
+    userId: string,
+    period: string,
+  ): Promise<number> {
+    const row = await this.db
+      .select({ n: count() })
+      .from(sourcesTable)
+      .where(
+        and(
+          eq(sourcesTable.userId, userId),
+          eq(sourcesTable.billingPeriod, period),
+          isNull(sourcesTable.deletedAt),
+          or(
+            eq(sourcesTable.status, "queued"),
+            eq(sourcesTable.status, "processing"),
+          ),
+        ),
+      );
+    return Number(row[0]?.n ?? 0);
+  }
+
+  async assertSourceRegistrationAllowed(
+    userId: string,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; reason: "quota_exceeded" | "too_many_in_flight" }
+  > {
+    const period = getCurrentBillingPeriod();
+
+    if (
+      (await this.countInFlightSources(userId, period)) >=
+      MAX_IN_FLIGHT_SOURCES_PER_USER
+    ) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if (
+      (await this.getSourceUploadsUsed(userId, period)) >=
+      PLAN_SOURCE_UPLOADS_LIMIT
+    ) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    return { ok: true };
+  }
+
+  private async getSourceUploadsUsed(
+    userId: string,
+    period: string,
+  ): Promise<number> {
+    const counters = (
+      await this.db
+        .select()
+        .from(monthlyUsageCounters)
+        .where(
+          and(
+            eq(monthlyUsageCounters.userId, userId),
+            eq(monthlyUsageCounters.period, period),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return counters?.sourceUploadsUsed ?? 0;
+  }
+
+  async getSourceByUserIdempotency(input: {
+    userId: string;
+    idempotencyKey: string;
+  }): Promise<AppSource | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(sourcesTable)
+        .where(
+          and(
+            eq(sourcesTable.userId, input.userId),
+            eq(sourcesTable.idempotencyKey, input.idempotencyKey),
+            isNull(sourcesTable.deletedAt),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return row ? toSourceRecord(row) : null;
+  }
+
+  async findReadySourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(sourcesTable)
+        .where(
+          and(
+            eq(sourcesTable.workspaceId, input.workspaceId),
+            eq(sourcesTable.checksum, input.checksum),
+            eq(sourcesTable.status, "ready"),
+            isNull(sourcesTable.deletedAt),
+          ),
+        )
+        .orderBy(desc(sourcesTable.createdAt))
+        .limit(1)
+    )[0];
+    return row ? toSourceRecord(row) : null;
+  }
+
+  async insertQueuedSourceWithLink(input: {
+    id: string;
+    workspaceId: string;
+    userId: string;
+    documentId: string;
+    billingPeriod: string;
+    storageKey: string;
+    mimeType: string;
+    originalFileName: string;
+    fileSizeBytes: number;
+    checksum: string;
+    pageCount: number;
+    idempotencyKey: string | null;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+  > {
+    if (input.idempotencyKey) {
+      const replay = await this.getSourceByUserIdempotency({
+        userId: input.userId,
+        idempotencyKey: input.idempotencyKey,
+      });
+      if (replay) {
+        return { ok: false, reason: "idempotency_replay", source: replay };
+      }
+    }
+
+    const period = input.billingPeriod;
+    const now = new Date();
+
+    try {
+      const source = await this.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(sourcesTable)
+          .values({
+            id: input.id,
+            workspaceId: input.workspaceId,
+            userId: input.userId,
+            billingPeriod: period,
+            status: "queued",
+            storageKey: input.storageKey,
+            mimeType: input.mimeType,
+            originalFileName: input.originalFileName,
+            fileSizeBytes: input.fileSizeBytes,
+            checksum: input.checksum,
+            pageCount: input.pageCount,
+            idempotencyKey: input.idempotencyKey,
+            updatedAt: now,
+          })
+          .returning();
+
+        if (!inserted) {
+          throw new Error("Source insert failed");
+        }
+
+        await tx.insert(documentSourceLinks).values({
+          documentId: input.documentId,
+          sourceId: inserted.id,
+        });
+
+        const counters = (
+          await tx
+            .select()
+            .from(monthlyUsageCounters)
+            .where(
+              and(
+                eq(monthlyUsageCounters.userId, input.userId),
+                eq(monthlyUsageCounters.period, period),
+              ),
+            )
+            .limit(1)
+        )[0];
+
+        const storageDelta = input.fileSizeBytes;
+
+        if (counters) {
+          await tx
+            .update(monthlyUsageCounters)
+            .set({
+              storageUsedBytes: counters.storageUsedBytes + storageDelta,
+              updatedAt: now,
+            })
+            .where(eq(monthlyUsageCounters.id, counters.id));
+        } else {
+          await tx.insert(monthlyUsageCounters).values({
+            userId: input.userId,
+            period,
+            storageUsedBytes: storageDelta,
+          });
+        }
+
+        return inserted;
+      });
+
+      return { ok: true, source: toSourceRecord(source) };
+    } catch (error) {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof (error as { code: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : null;
+
+      if (code === "23505" && input.idempotencyKey) {
+        const replay = await this.getSourceByUserIdempotency({
+          userId: input.userId,
+          idempotencyKey: input.idempotencyKey,
+        });
+        if (replay) {
+          return { ok: false, reason: "idempotency_replay", source: replay };
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  async createDocumentSourceLink(input: {
+    documentId: string;
+    sourceId: string;
+  }): Promise<{ ok: true } | { ok: false; reason: "duplicate_link" }> {
+    try {
+      await this.db.insert(documentSourceLinks).values({
+        documentId: input.documentId,
+        sourceId: input.sourceId,
+      });
+      return { ok: true };
+    } catch (error) {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof (error as { code: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : null;
+      if (code === "23505") {
+        return { ok: false, reason: "duplicate_link" };
+      }
+      throw error;
+    }
+  }
+
+  async getSourceForUser(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<AppSource | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(sourcesTable)
+        .where(
+          and(
+            eq(sourcesTable.id, input.sourceId),
+            eq(sourcesTable.userId, input.userId),
+            isNull(sourcesTable.deletedAt),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return row ? toSourceRecord(row) : null;
+  }
+
+  async listSourcesForDocument(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<AppSource[]> {
+    const doc = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+    if (!doc) {
+      return [];
+    }
+
+    const links = await this.db
+      .select()
+      .from(documentSourceLinks)
+      .where(eq(documentSourceLinks.documentId, input.documentId));
+
+    const ids = links.map((l) => l.sourceId);
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select()
+      .from(sourcesTable)
+      .where(
+        and(inArray(sourcesTable.id, ids), isNull(sourcesTable.deletedAt)),
+      )
+      .orderBy(desc(sourcesTable.createdAt));
+
+    return rows.map(toSourceRecord);
+  }
+
+  async getDocumentIdForSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<string | null> {
+    const source = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+    if (!source) {
+      return null;
+    }
+
+    const links = await this.db
+      .select()
+      .from(documentSourceLinks)
+      .where(eq(documentSourceLinks.sourceId, input.sourceId))
+      .orderBy(desc(documentSourceLinks.createdAt));
+
+    const workspace = await this.getWorkspaceForUser(input.userId);
+    if (!workspace) {
+      return null;
+    }
+
+    for (const link of links) {
+      const doc = await this.getDocumentByIdUnscoped(link.documentId);
+      if (doc && doc.workspaceId === workspace.id) {
+        return link.documentId;
+      }
+    }
+
+    return null;
+  }
+
+  async setSourceBullmqJobId(input: {
+    userId: string;
+    sourceId: string;
+    bullmqJobId: string;
+  }): Promise<AppSource | null> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(sourcesTable)
+      .set({ bullmqJobId: input.bullmqJobId, updatedAt: now })
+      .where(
+        and(
+          eq(sourcesTable.id, input.sourceId),
+          eq(sourcesTable.userId, input.userId),
+          isNull(sourcesTable.deletedAt),
+        ),
+      )
+      .returning();
+
+    return row ? toSourceRecord(row) : null;
+  }
+
+  async markSourceFailedFromApi(input: {
+    userId: string;
+    sourceId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<AppSource | null> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(sourcesTable)
+      .set({
+        status: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(sourcesTable.id, input.sourceId),
+          eq(sourcesTable.userId, input.userId),
+          eq(sourcesTable.status, "queued"),
+          isNull(sourcesTable.deletedAt),
+        ),
+      )
+      .returning();
+
+    return row ? toSourceRecord(row) : null;
+  }
+
+  async retryFailedSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    | { ok: true; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "not_found"
+          | "not_failed"
+          | "quota_exceeded"
+          | "too_many_in_flight";
+      }
+  > {
+    const current = await this.getSourceForUser({
+      userId: input.userId,
+      sourceId: input.sourceId,
+    });
+
+    if (!current) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (current.status !== "failed") {
+      return { ok: false, reason: "not_failed" };
+    }
+
+    const period = getCurrentBillingPeriod();
+
+    if (
+      (await this.countInFlightSources(input.userId, period)) >=
+      MAX_IN_FLIGHT_SOURCES_PER_USER
+    ) {
+      return { ok: false, reason: "too_many_in_flight" };
+    }
+
+    if (
+      (await this.getSourceUploadsUsed(input.userId, period)) >=
+      PLAN_SOURCE_UPLOADS_LIMIT
+    ) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
+
+    const now = new Date();
+    const [row] = await this.db
+      .update(sourcesTable)
+      .set({
+        status: "queued",
+        bullmqJobId: null,
+        errorMessage: null,
+        errorCode: null,
+        processingStartedAt: null,
+        retryCount: current.retryCount + 1,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(sourcesTable.id, input.sourceId),
+          eq(sourcesTable.userId, input.userId),
+          isNull(sourcesTable.deletedAt),
+        ),
+      )
+      .returning();
+
+    if (!row) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    return { ok: true, source: toSourceRecord(row) };
+  }
+
+  async softDeleteSource(input: {
+    userId: string;
+    sourceId: string;
+  }): Promise<
+    { ok: true } | { ok: false; reason: "not_found" | "already_deleted" }
+  > {
+    const row = (
+      await this.db
+        .select()
+        .from(sourcesTable)
+        .where(
+          and(
+            eq(sourcesTable.id, input.sourceId),
+            eq(sourcesTable.userId, input.userId),
+          ),
+        )
+        .limit(1)
+    )[0];
+
+    if (!row) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (row.deletedAt) {
+      return { ok: false, reason: "already_deleted" };
+    }
+
+    const now = new Date();
+    const storageSubtract =
+      row.fileSizeBytes + (row.parsedTextSizeBytes ?? 0);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(documentSourceLinks)
+        .where(eq(documentSourceLinks.sourceId, input.sourceId));
+
+      const counters = (
+        await tx
+          .select()
+          .from(monthlyUsageCounters)
+          .where(
+            and(
+              eq(monthlyUsageCounters.userId, row.userId),
+              eq(monthlyUsageCounters.period, row.billingPeriod),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      if (counters && storageSubtract > 0) {
+        await tx
+          .update(monthlyUsageCounters)
+          .set({
+            storageUsedBytes: Math.max(
+              0,
+              counters.storageUsedBytes - storageSubtract,
+            ),
+            updatedAt: now,
+          })
+          .where(eq(monthlyUsageCounters.id, counters.id));
+      }
+
+      await tx
+        .update(sourcesTable)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(eq(sourcesTable.id, input.sourceId));
+    });
+
+    return { ok: true };
   }
 
   async invalidateStaleProposals(input: {

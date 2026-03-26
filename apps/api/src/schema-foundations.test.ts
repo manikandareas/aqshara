@@ -99,4 +99,24 @@ describe("database schema foundations", () => {
 
     assertUniqueIndex(table as TableLike, ["user_id", "idempotency_key"]);
   });
+
+  it("persists source ingestion lifecycle and document links", () => {
+    const sources = database.sourcesTable;
+    assert.ok(sources, "expected sourcesTable export");
+    const sourceCols = getTableColumns(sources);
+    assert.ok("workspaceId" in sourceCols);
+    assert.ok("checksum" in sourceCols);
+    assert.ok("parsedTextStorageKey" in sourceCols);
+    assert.ok("parsedTextSizeBytes" in sourceCols);
+    assert.ok("deletedAt" in sourceCols);
+
+    const links = database.documentSourceLinks;
+    assert.ok(links, "expected documentSourceLinks export");
+    const linkCols = getTableColumns(links);
+    assert.ok("documentId" in linkCols);
+    assert.ok("sourceId" in linkCols);
+
+    assertUniqueIndex(links as TableLike, ["document_id", "source_id"]);
+    assertUniqueIndex(sources as TableLike, ["user_id", "idempotency_key"]);
+  });
 });

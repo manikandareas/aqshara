@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   jsonb,
   pgTable,
@@ -155,6 +156,64 @@ export const exportsTable = pgTable(
     userIdempotencyIdx: uniqueIndex("exports_user_id_idempotency_key_idx").on(
       table.userId,
       table.idempotencyKey,
+    ),
+  }),
+);
+
+export const sourcesTable = pgTable(
+  "sources",
+  {
+    id: uuid("id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    billingPeriod: varchar("billing_period", { length: 7 }).notNull(),
+    status: varchar("status", { length: 16 }).notNull(),
+    storageKey: text("storage_key").notNull(),
+    parsedTextStorageKey: text("parsed_text_storage_key"),
+    parsedTextSizeBytes: integer("parsed_text_size_bytes"),
+    mimeType: varchar("mime_type", { length: 128 }).notNull(),
+    originalFileName: varchar("original_file_name", { length: 512 }).notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull(),
+    checksum: varchar("checksum", { length: 128 }).notNull(),
+    pageCount: integer("page_count"),
+    bullmqJobId: text("bullmq_job_id"),
+    retryCount: integer("retry_count").notNull().default(0),
+    errorMessage: text("error_message"),
+    errorCode: varchar("error_code", { length: 64 }),
+    processingStartedAt: timestamp("processing_started_at"),
+    readyAt: timestamp("ready_at"),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userIdempotencyIdx: uniqueIndex("sources_user_id_idempotency_key_idx").on(
+      table.userId,
+      table.idempotencyKey,
+    ),
+    workspaceChecksumIdx: index("sources_workspace_checksum_idx").on(
+      table.workspaceId,
+      table.checksum,
+    ),
+  }),
+);
+
+export const documentSourceLinks = pgTable(
+  "document_source_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    documentId: uuid("document_id").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    documentSourceIdx: uniqueIndex("document_source_links_document_source_idx").on(
+      table.documentId,
+      table.sourceId,
+    ),
+    documentIdIdx: index("document_source_links_document_id_idx").on(
+      table.documentId,
     ),
   }),
 );
