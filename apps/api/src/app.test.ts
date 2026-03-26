@@ -1076,3 +1076,212 @@ describe("proposal apply and dismiss", () => {
       throw new Error("Dismiss should not mutate already applied proposal");
   });
 });
+
+describe("AI action error handling", () => {
+  it("releases AI action reservation on provider failure for outline generation", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_ai_error_1";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const originalGenerateOutlineDraft =
+      context.aiService.generateOutlineDraft;
+    context.aiService.generateOutlineDraft = async () => {
+      throw new Error("Provider downstream failure");
+    };
+
+    const idempotencyKey = "test_outline_failure";
+
+    const res = await app.request(
+      `http://localhost/v1/documents/${initialDoc.id}/outline/generate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          topic: "Some Topic",
+          idempotencyKey,
+        }),
+      },
+    );
+
+    assert.equal(res.status, 500);
+
+    const usage = (
+      await (
+        await app.request("http://localhost/v1/me", {
+          headers: { "x-test-user-id": clerkId },
+        })
+      ).json()
+    ).usage;
+
+    assert.equal(usage.aiActionsUsed, 0);
+    assert.equal(usage.aiActionsReserved, 0);
+
+    context.aiService.generateOutlineDraft = originalGenerateOutlineDraft;
+  });
+
+  it("releases AI action reservation on finalize failure for outline generation", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_ai_error_1b";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const originalFinalizeAiAction = context.repository.finalizeAiAction;
+    context.repository.finalizeAiAction = async () => {
+      throw new Error("Database failure during finalize");
+    };
+
+    const idempotencyKey = "test_outline_finalize_failure";
+
+    const res = await app.request(
+      `http://localhost/v1/documents/${initialDoc.id}/outline/generate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          topic: "Some Topic",
+          idempotencyKey,
+        }),
+      },
+    );
+
+    assert.equal(res.status, 500);
+
+    const usage = (
+      await (
+        await app.request("http://localhost/v1/me", {
+          headers: { "x-test-user-id": clerkId },
+        })
+      ).json()
+    ).usage;
+
+    assert.equal(usage.aiActionsUsed, 0);
+    assert.equal(usage.aiActionsReserved, 0);
+
+    context.repository.finalizeAiAction = originalFinalizeAiAction;
+  });
+
+  it("releases AI action reservation on provider failure for AI writing proposals", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_ai_error_2";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document: initialDoc } = await createRes.json();
+
+    const saveRes = await app.request(
+      `http://localhost/v1/documents/${initialDoc.id}/content`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          contentJson: [
+            { type: "paragraph", id: "b1", children: [{ text: "Hello" }] },
+          ],
+          baseUpdatedAt: initialDoc.updatedAt,
+        }),
+      },
+    );
+
+    // Monkey patch aiService to throw an error
+    const originalGenerateWritingProposal =
+      context.aiService.generateWritingProposal;
+    context.aiService.generateWritingProposal = async () => {
+      throw new Error("Provider downstream failure");
+    };
+
+    const idempotencyKey = "test_proposal_failure";
+
+    const res = await app.request(
+      `http://localhost/v1/documents/${initialDoc.id}/ai/proposals`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          action: "continue",
+          targetBlockIds: ["b1"],
+          idempotencyKey,
+        }),
+      },
+    );
+
+    assert.equal(res.status, 500);
+
+    // Verify reservation was released
+    const usage = (
+      await (
+        await app.request("http://localhost/v1/me", {
+          headers: { "x-test-user-id": clerkId },
+        })
+      ).json()
+    ).usage;
+
+    // Usage should have 0 actions used and 0 actions reserved
+    assert.equal(usage.aiActionsUsed, 0);
+    assert.equal(usage.aiActionsReserved, 0);
+
+    // Restore
+    context.aiService.generateWritingProposal = originalGenerateWritingProposal;
+  });
+});

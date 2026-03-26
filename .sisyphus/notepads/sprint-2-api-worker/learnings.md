@@ -67,16 +67,19 @@
 - For schema-only groundwork before repository wiring exists, a root-level API test that introspects Drizzle table metadata gives real coverage of concurrency/idempotency invariants without pulling Task 3 logic forward.
 
 ## Sprint 2 Task 3: Repository & Service Extensions
+
 - Expanded `AppRepository` interface and its memory/Postgres implementations to natively handle domain requirements directly: `countActiveDocuments`, `reserveAiAction`, `createDocumentChangeProposal`, etc.
 - Removed hardcoded usage counters out of route handlers, shifting calculation to `getUsage()` using `monthlyUsageCounters` and `aiActionsReserved`.
 - Idempotency relies strictly on `requestHash` matching: same hash replays the existing reservation, mismatch returns `idempotency_mismatch`.
 - Adopted `DocumentChangeProposal` types from `@aqshara/documents` for strict boundary verification when proposing document modifications.
 
 ## Sprint 2 Task 3 Verification Fixes
+
 - Removed junk untracked files (`fix_app_context.js`, `patch_pg_repo.js`, etc.) left over from Task 3 implementation to maintain clean workspace.
 - Re-aligned reservation usage lifecycle statuses in `usage_events` from `pending` -> `reserved` and `failed` -> `released` upon release. Finalized events keep `succeeded`. This conforms correctly to Task 2 foundations and semantic plan expectations.
 
 ## Sprint 2 Task 3 Verification Fixes (Retry)
+
 - Removed `any` typing from the `updates` object in `updateDocumentChangeProposalStatus` by using a structurally typed literal initialized conditionally based on status. This ensures alignment with Drizzle ORM `.set()` bounds safely.
 - Deleted stray artifact `test_db_schema.js`.
 - The AI service layer successfully abstracts away the LLM provider invocation. We created a `AiProvider` interface and a `FakeAiProvider` for reliable testing.
@@ -87,6 +90,7 @@
 - Task 6: Implemented GET /v1/templates and POST /v1/documents/bootstrap in app.ts using createTemplateDocument and toPlainText from packages/documents.
 
 ## Outline Generation and Application
+
 - Added two new endpoints `POST /v1/documents/{documentId}/outline/generate` and `POST /v1/documents/{documentId}/outline/apply` to handle AI content generation.
 - Implemented Zod schemas for `OutlineDraft` and `OutlineDraftNode` inside `app.ts` to seamlessly integrate with OpenAPI via `@hono/zod-openapi`.
 - Used `outlineDraftToDocumentValue` provided by `@aqshara/documents` for converting an AI Outline Draft into a strictly typed `DocumentValue` canonical JSON that the application expects.
@@ -95,6 +99,7 @@
 - Removed out-of-scope temporary patch script artifacts (`patch_app.js` and `patch_app_test.js`) left over from the original completion attempt.
 
 ## Task 8 - API Route for Writing Proposals
+
 - Implemented `POST /v1/documents/{documentId}/ai/proposals` and enforce trailing block rule for `continue`
 - Use `isReplay` and `metadataJson` from the reservation context to handle idempotency safely
 - Mapped schema definitions manually using the existing patterns to preserve correct typings without TS errors
@@ -105,40 +110,45 @@
 
 - When restoring missing schema elements in OpenAPI Hono routes, ensure the underlying types matched. Restored the previously lost DocumentAstSchema definition before adding the Task 6-8 missing routes.
 
-- When applying a generated proposal, ensure BOTH the proposal's original `baseUpdatedAt` context AND the live document's `updatedAt` match the incoming request's `baseUpdatedAt`, to prevent applying stale edits. 
+- When applying a generated proposal, ensure BOTH the proposal's original `baseUpdatedAt` context AND the live document's `updatedAt` match the incoming request's `baseUpdatedAt`, to prevent applying stale edits.
 - Make sure dismiss doesn't alter proposals that are already applied or invalidated.
 
 ## Sprint 2 Task 10 Closeout
+
 - Successfully regenerated OpenAPI schemas and the API client with full idempotency.
 - Resolved residual lint and type errors blocking the root verification pipeline.
 - Verified queue and worker boundaries to ensure zero contamination from backend changes.
 
-
 ## Task 10 Closeout (Final Fix)
+
 - Reverted all out-of-scope edits from `apps/web/**`.
 - Removed stray `unreachable_blobs.txt`.
 - Filtered `apps/web` natively from root `test` and `lint` in `package.json` to allow purely backend CI to pass while web is broken on main.
-- Fixed `@aqshara/documents` missing  extensions in node test runner by enabling `allowImportingTsExtensions`.
+- Fixed `@aqshara/documents` missing extensions in node test runner by enabling `allowImportingTsExtensions`.
 
 ## Task 10 Closeout (Final Fix)
-- Reverted all out-of-scope edits from apps/web/**
+
+- Reverted all out-of-scope edits from apps/web/\*\*
 - Removed stray unreachable_blobs.txt
 - Filtered apps/web natively from root test and lint in package.json to allow purely backend CI to pass while web is broken on main.
 - Fixed @aqshara/documents missing .ts extensions in node test runner by enabling allowImportingTsExtensions.
 - Task 10 hygiene: confirmed deletion of stray unreachable_blobs.txt artifact.
 
 ### F2 Rejection Addressed (Completed)
+
 - Removed `z.any()` from `apps/api/src/app.ts` (`usage`, `proposal`, `nodes`) replacing them with precise structures (e.g. `z.object({})`, `DocumentChangeProposalSchema`, `z.array(DocumentNodeSchema)`).
 - Replaced bare `JSON.parse` casting with explicit Zod schema parsing in `apps/api/src/lib/ai/service.ts` leveraging `@hono/zod-openapi`'s Zod export to validate `OutlineDraft` and `DocumentBlock[]`.
 - Deleted out-of-scope `apps/api/src/qa.test.ts` and `qa.ts` files left from reviewer QA.
 - Generated client schemas and ensured type/test safety.
 
 ### Proposal Schema Contract Alignment
+
 - In `generateProposalRoute`, updated the returned `proposal` field to use `ProposalSchema` instead of `DocumentChangeProposalSchema`. This ensures the contract correctly models what the handler returns (the full database entity wrapper) and remains perfectly consistent with the apply/dismiss routes.
 
 ### Scope Cleanup
+
 - Removed temporary build/patch artifacts and strictly restored the task plan file to HEAD, isolating only the valid API contract fixes for F2.
-- Re-verifying complex API flows with `memory-app-context` is stable without leaving runtime artifacts. 
+- Re-verifying complex API flows with `memory-app-context` is stable without leaving runtime artifacts.
 - F3 QA refresh confirms idempotency and stale resolution protections hold steady. No regressions detected after remediation.
 
 - F2 Re-run: Validated ProposalSchema correctly hoisted and bound in OpenAPI route. Zod parser correctly replaces manual cast in ai/service.ts.
@@ -146,3 +156,11 @@
 - Audit note (F1): REJECT — `/v1/me` is not extended with onboarding/documentStats/reserved usage fields, and AI generation routes show reserve/finalize but no explicit release path on provider failure; proposal generate/apply/dismiss contracts are path/schema-consistent; worker/queue diff is empty.
 
 - F1 Remediation: Extended `/v1/me` route response schema and handler to correctly include `documentStats` (activeCount, archivedCount), `onboarding` flag (`shouldShow`, `reason` derived from active/archived counts), and richer `usage` metadata (`period`, `aiActionsUsed`, etc.) as required by the Sprint 2 plan. Verified schema generation and runtime compliance with newly added test cases.
+
+- F1 Remediation (Gap B): Explicitly wrapped the AI provider call inside `try-catch` blocks within the `POST /v1/documents/{documentId}/outline/generate` and `POST /v1/documents/{documentId}/ai/proposals` handlers. This ensures `context.repository.releaseAiAction(reservation.eventId)` is correctly triggered upon downstream provider failures, honoring the reservation lifecycle contract and avoiding leaked reserved quotas.
+
+- Scope hygiene: Delete temporary script artifacts (e.g., test-generator.js, fix.js) created during test development to avoid root workspace pollution.
+- Updated `docs/OPERATIONAL PLAN.md` to reflect Sprint 2 backend foundation completion.
+- Added summary of implemented backend features: enriched `/v1/me`, template/bootstrap endpoints, outline generation, and writing proposal lifecycle.
+- Updated execution plan to reflect shift toward frontend integration and Sprint 3 tasks.
+- Added "Status implementasi sprint" section under Sprint 2 to track progress.

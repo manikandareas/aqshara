@@ -18,14 +18,14 @@ Dokumen ini berasumsi bahwa launch awal difokuskan pada **writing-first MVP**, s
 Status dokumen ini per update terbaru:
 
 - Fondasi monorepo writing-first sudah selesai diimplementasikan.
-- Sprint 1 core path sekarang sudah tersedia end-to-end untuk happy path:
-  - Clerk auth di `apps/web`
-  - protected Hono API di `apps/api`
-  - Clerk webhook provisioning untuk user internal + workspace default
-  - document dashboard
-  - document CRUD dasar
-  - structured editor v1
-  - debounce autosave + refresh recovery path
+- Sprint 1 core path sekarang sudah tersedia end-to-end untuk happy path.
+- Sprint 2 backend foundation (API & Worker scope) sudah selesai diimplementasikan:
+  - Enriched `/v1/me` dengan document stats, onboarding flags, dan detailed usage info.
+  - Template system (`GET /v1/templates`) dan document bootstrap (`POST /v1/documents/bootstrap`).
+  - Outline generation (`/outline/generate`) dan apply (`/outline/apply`) dengan AI reservation lifecycle.
+  - Writing proposal lifecycle (`/ai/proposals`, `/apply`, `/dismiss`) dengan idempotensi dan stale-write protection.
+  - Quota ledger (reserve, finalize, release) terintegrasi dengan AI service layer.
+  - Regenerasi OpenAPI contract dan API client (`@aqshara/api-client`) yang sinkron dengan backend.
 - Struktur aktif repo sekarang adalah:
   - `apps/web` untuk product frontend Next.js
   - `apps/api` untuk Hono REST API
@@ -107,17 +107,17 @@ Status dokumen ini per update terbaru:
 1. Verifikasi delivery webhook Clerk untuk environment production masih bergantung pada setup dashboard, tunnel/domain, dan secret nyata.
 2. Basic inline formatting dan keyboard shortcuts editor belum tersedia.
 3. Snapshot versioning periodik belum tersedia; save path saat ini sudah memiliki stale-write protection tetapi belum memiliki version history periodik.
-4. Plan/usage summary masih berupa foundation stub untuk Free plan, belum enforcement penuh.
+4. Integrasi penuh frontend dengan quota engine (limit messaging/enforcement di UI) dan onboarding dashboard.
 
 ### Implikasi ke execution plan
 
-- Sprint 1 tidak lagi berstatus "mulai implementasi"; sebagian besar jalur inti sudah jalan.
+- Sprint 1 & Sprint 2 (Backend foundation) sudah selesai; jalur inti dan AI layer sudah operasional.
 - Fokus berikutnya bergeser ke:
-  - menutup gap Sprint 1 yang masih tersisa,
+  - integrasi frontend dengan AI proposal lifecycle,
+  - implementasi UI onboarding berbasis template & outline,
   - hardening auth provisioning dan operational webhook flow,
-  - masuk ke onboarding/template/outline,
-  - AI writing assistant,
-  - usage/quota enforcement.
+  - usage/quota enforcement di layer UI,
+  - masuk ke Epic 7 (DOCX Export) dan Sprint 3.
 
 ---
 
@@ -656,6 +656,23 @@ Membuat workflow drafting benar-benar berguna dengan onboarding goal-based, temp
 - Selection edge cases
 - Large prompt handling
 - Rate limit dan error message clarity
+
+### Status implementasi sprint
+
+- Sudah selesai di repo (Backend focus):
+  - Canonical `DocumentValue` AST (@aqshara/documents).
+  - Quota ledger foundation & reservation lifecycle (reserve/finalize/release).
+  - AI writing service layer dengan fake provider support.
+  - Enriched `/v1/me` (stats, onboarding logic, usage).
+  - Template listing & document bootstrap routes.
+  - Outline generate/apply routes.
+  - Writing proposal generation/apply/dismiss routes.
+  - Regenerasi API Client sinkron dengan route baru.
+- Masih tersisa / perlu hardening (Integration & Frontend focus):
+  - Integrasi UI onboarding dengan backend template/outline endpoints.
+  - Integrasi editor dengan AI proposal lifecycle (apply/dismiss UI).
+  - Quota enforcement & messaging di layer frontend.
+  - Hardening AI prompt untuk variasi input user.
 
 ---
 

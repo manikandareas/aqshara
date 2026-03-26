@@ -1346,16 +1346,23 @@ export function createApp(context: AppContext) {
         });
       }
 
-      const outline = await context.aiService.generateOutlineDraft({
-        action: "outline",
-        topic: body.topic,
-      });
+      try {
+        const outline = await context.aiService.generateOutlineDraft({
+          action: "outline",
+          topic: body.topic,
+        });
 
-      await context.repository.finalizeAiAction(
-        reservation.eventId!,
-        outline as unknown as Record<string, unknown>,
-      );
-      return c.json({ outline, usage: {} });
+        await context.repository.finalizeAiAction(
+          reservation.eventId!,
+          outline as unknown as Record<string, unknown>,
+        );
+        return c.json({ outline, usage: {} });
+      } catch (error) {
+        if (reservation.eventId) {
+          await context.repository.releaseAiAction(reservation.eventId);
+        }
+        throw error;
+      }
     } catch (error: unknown) {
       if (error instanceof Error && error.message?.includes("Quota exceeded")) {
         return c.json(
@@ -1504,41 +1511,48 @@ export function createApp(context: AppContext) {
         });
       }
 
-      const targetBlocks = document.contentJson.filter((b: { id: string }) =>
-        body.targetBlockIds.includes(b.id),
-      );
-      const text = toPlainText(
-        targetBlocks as Parameters<typeof toPlainText>[0],
-      );
+      try {
+        const targetBlocks = document.contentJson.filter((b: { id: string }) =>
+          body.targetBlockIds.includes(b.id),
+        );
+        const text = toPlainText(
+          targetBlocks as Parameters<typeof toPlainText>[0],
+        );
 
-      const nodes = await context.aiService.generateWritingProposal({
-        action: body.action,
-        text,
-        context: document.title,
-      });
+        const nodes = await context.aiService.generateWritingProposal({
+          action: body.action,
+          text,
+          context: document.title,
+        });
 
-      const proposal = await context.repository.createDocumentChangeProposal({
-        documentId,
-        userId: result.bootstrap.user.id,
-        proposalJson: {
-          id: crypto.randomUUID(),
+        const proposal = await context.repository.createDocumentChangeProposal({
+          documentId,
+          userId: result.bootstrap.user.id,
+          proposalJson: {
+            id: crypto.randomUUID(),
+            targetBlockIds: body.targetBlockIds,
+            action: "replace",
+            nodes,
+          },
+          actionType: "replace",
+          baseUpdatedAt: document.updatedAt,
           targetBlockIds: body.targetBlockIds,
-          action: "replace",
-          nodes,
-        },
-        actionType: "replace",
-        baseUpdatedAt: document.updatedAt,
-        targetBlockIds: body.targetBlockIds,
-      });
+        });
 
-      await context.repository.finalizeAiAction(reservation.eventId!, {
-        proposalId: proposal.id,
-      });
+        await context.repository.finalizeAiAction(reservation.eventId!, {
+          proposalId: proposal.id,
+        });
 
-      return c.json({
-        proposal,
-        allowedApplyModes: ["replace", "insert_below"],
-      });
+        return c.json({
+          proposal,
+          allowedApplyModes: ["replace", "insert_below"],
+        });
+      } catch (error) {
+        if (reservation.eventId) {
+          await context.repository.releaseAiAction(reservation.eventId);
+        }
+        throw error;
+      }
     } catch (error: unknown) {
       if (error instanceof Error && error.message?.includes("Quota exceeded")) {
         return c.json(
