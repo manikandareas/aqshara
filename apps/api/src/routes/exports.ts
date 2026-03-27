@@ -103,6 +103,40 @@ const createDocxExportRoute = createRoute({
   },
 });
 
+const preflightDocxExportRoute = createRoute({
+  method: "post",
+  path: "/v1/documents/{documentId}/exports/docx/preflight",
+  tags: ["exports"],
+  summary: "Preflight DOCX export warnings without creating a job",
+  request: {
+    params: documentParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Preflight warnings",
+      content: {
+        "application/json": {
+          schema: z.object({
+            preflightWarnings: z.array(PreflightWarningSchema),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    403: {
+      description: "Document belongs to another workspace",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Document not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
 const listExportsRoute = createRoute({
   method: "get",
   path: "/v1/exports",
@@ -235,6 +269,46 @@ const downloadExportRoute = createRoute({
 });
 
 export function registerExportRoutes(app: OpenAPIHono<ApiEnv>): void {
+  app.openapi(preflightDocxExportRoute, (async (c: Context<ApiEnv>) => {
+    const context = c.get("ctx");
+    const auth = await requireAppUser(c);
+    if (auth.error) return auth.error;
+
+    const documentId = c.req.param("documentId");
+    if (!documentId) {
+      return c.json(
+        createErrorPayload("bad_request", "Missing documentId", getRequestId(c)),
+        400,
+      );
+    }
+
+    const result = await context.services.exports.preflightDocxExport({
+      userId: auth.bootstrap.user.id,
+      workspaceId: auth.bootstrap.workspace.id,
+      documentId,
+    });
+
+    if (result.type === "document_not_found") {
+      return c.json(
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
+        404,
+      );
+    }
+
+    if (result.type === "workspace_mismatch") {
+      return c.json(
+        createErrorPayload(
+          "forbidden",
+          "Document does not belong to workspace",
+          getRequestId(c),
+        ),
+        403,
+      );
+    }
+
+    return c.json({ preflightWarnings: result.warnings }, 200);
+  }) as never);
+
   app.openapi(createDocxExportRoute, (async (c: Context<ApiEnv>) => {
     const context = c.get("ctx");
     const auth = await requireAppUser(c);

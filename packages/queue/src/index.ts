@@ -27,6 +27,7 @@ export const parseSourcePayloadSchema = z.object({
   userId: z.string().min(1),
   workspaceId: z.string().min(1),
   idempotencyKey: z.string().min(1),
+  forceOcr: z.boolean().optional().default(false),
 });
 
 export type ParseSourcePayload = z.infer<typeof parseSourcePayloadSchema>;

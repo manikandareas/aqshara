@@ -17,14 +17,12 @@ import {
   exportsTable,
   sourcesTable,
 } from "@aqshara/database";
-import { and, count, desc, eq, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { getCurrentBillingPeriod } from "./billing-period.js";
 import {
-  PLAN_AI_ACTIONS_LIMIT,
-  PLAN_EXPORTS_LIMIT,
   MAX_IN_FLIGHT_EXPORTS_PER_USER,
   MAX_IN_FLIGHT_SOURCES_PER_USER,
-  PLAN_SOURCE_UPLOADS_LIMIT,
+  PLAN_LIMITS,
 } from "../lib/plan-limits.js";
 import type {
   AppDocument,
@@ -51,6 +49,13 @@ function toIsoString(value: Date | string | null): string | null {
   }
 
   return value instanceof Date ? value.toISOString() : value;
+}
+
+async function acquireUsageLock(
+  tx: { execute: (...args: any[]) => any },
+  key: string,
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
 }
 
 function toSourceRecord(row: typeof sourcesTable.$inferSelect): AppSource {
@@ -120,8 +125,24 @@ function toDocumentRecord(row: typeof documents.$inferSelect): AppDocument {
   };
 }
 
+function normalizePlanCode(planCode: string | null | undefined): PlanCode {
+  return planCode === "pro" ? "pro" : "free";
+}
+
 export class PostgresAppRepository implements AppRepository {
   private readonly db = createDatabase();
+
+  private async getPlanLimitsForUser(userId: string) {
+    const row = (
+      await this.db
+        .select({ planCode: users.planCode })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+    )[0];
+
+    return PLAN_LIMITS[normalizePlanCode(row?.planCode)];
+  }
 
   async getUserByClerkUserId(clerkUserId: string): Promise<AppUser | null> {
     const user = (
@@ -504,6 +525,29 @@ export class PostgresAppRepository implements AppRepository {
     return rows.length;
   }
 
+  async countActiveSourcesForDocument(documentId: string): Promise<number> {
+    const rows = await this.db
+      .select({ sourceId: documentSourceLinks.sourceId })
+      .from(documentSourceLinks)
+      .innerJoin(
+        sourcesTable,
+        eq(documentSourceLinks.sourceId, sourcesTable.id),
+      )
+      .where(
+        and(
+          eq(documentSourceLinks.documentId, documentId),
+          isNull(sourcesTable.deletedAt),
+          or(
+            eq(sourcesTable.status, "queued"),
+            eq(sourcesTable.status, "processing"),
+            eq(sourcesTable.status, "ready"),
+          ),
+        ),
+      );
+
+    return rows.length;
+  }
+
   async reserveAiAction(input: {
     userId: string;
     documentId?: string;
@@ -512,102 +556,111 @@ export class PostgresAppRepository implements AppRepository {
     requestHash?: string;
   }): Promise<{
     allowed: boolean;
-    reason?: "idempotency_mismatch" | "quota_exceeded";
+    reason?: "idempotency_mismatch" | "quota_exceeded" | "duplicate_in_flight";
     eventId?: string;
     isReplay?: boolean;
     metadataJson?: unknown;
   }> {
     const period = getCurrentBillingPeriod();
+    return this.db.transaction(async (tx) => {
+      await acquireUsageLock(tx, `ai:${input.userId}:${period}`);
 
-    if (input.idempotencyKey) {
-      const existingEvent = (
-        await this.db
+      if (input.idempotencyKey) {
+        const existingEvent = (
+          await tx
+            .select()
+            .from(usageEvents)
+            .where(
+              and(
+                eq(usageEvents.userId, input.userId),
+                eq(usageEvents.idempotencyKey, input.idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
+
+        if (existingEvent) {
+          if (existingEvent.requestHash !== input.requestHash) {
+            return { allowed: false, reason: "idempotency_mismatch" as const };
+          }
+
+          if (existingEvent.status === "reserved") {
+            return { allowed: false, reason: "duplicate_in_flight" as const };
+          }
+
+          return {
+            allowed: true,
+            eventId: existingEvent.id,
+            isReplay: existingEvent.status === "succeeded",
+            metadataJson: existingEvent.metadataJson,
+          };
+        }
+      }
+
+      const counters = (
+        await tx
           .select()
-          .from(usageEvents)
+          .from(monthlyUsageCounters)
           .where(
             and(
-              eq(usageEvents.userId, input.userId),
-              eq(usageEvents.idempotencyKey, input.idempotencyKey),
+              eq(monthlyUsageCounters.userId, input.userId),
+              eq(monthlyUsageCounters.period, period),
             ),
           )
           .limit(1)
       )[0];
 
-      if (existingEvent) {
-        if (existingEvent.requestHash !== input.requestHash) {
-          return { allowed: false, reason: "idempotency_mismatch" };
-        }
-        return {
-          allowed: true,
-          eventId: existingEvent.id,
-          isReplay: existingEvent.status === "succeeded",
-          metadataJson: existingEvent.metadataJson,
-        };
+      const used = counters?.aiActionsUsed ?? 0;
+
+      const reservedRecord = (
+        await tx
+          .select()
+          .from(aiActionsReserved)
+          .where(
+            and(
+              eq(aiActionsReserved.userId, input.userId),
+              eq(aiActionsReserved.period, period),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      const reserved = reservedRecord?.aiActionsReserved ?? 0;
+      const limit = PLAN_LIMITS.free.aiActionsLimit;
+
+      if (used + reserved >= limit) {
+        return { allowed: false, reason: "quota_exceeded" as const };
       }
-    }
 
-    const counters = (
-      await this.db
-        .select()
-        .from(monthlyUsageCounters)
-        .where(
-          and(
-            eq(monthlyUsageCounters.userId, input.userId),
-            eq(monthlyUsageCounters.period, period),
-          ),
-        )
-        .limit(1)
-    )[0];
+      if (reservedRecord) {
+        await tx
+          .update(aiActionsReserved)
+          .set({ aiActionsReserved: reserved + 1, updatedAt: new Date() })
+          .where(eq(aiActionsReserved.id, reservedRecord.id));
+      } else {
+        await tx.insert(aiActionsReserved).values({
+          userId: input.userId,
+          period,
+          aiActionsReserved: 1,
+        });
+      }
 
-    const used = counters?.aiActionsUsed ?? 0;
+      const [event] = await tx
+        .insert(usageEvents)
+        .values({
+          userId: input.userId,
+          documentId: input.documentId,
+          billingPeriod: period,
+          featureKey: input.featureKey,
+          eventType: "ai_action",
+          status: "reserved",
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+        })
+        .returning();
 
-    const reservedRecord = (
-      await this.db
-        .select()
-        .from(aiActionsReserved)
-        .where(
-          and(
-            eq(aiActionsReserved.userId, input.userId),
-            eq(aiActionsReserved.period, period),
-          ),
-        )
-        .limit(1)
-    )[0];
-
-    const reserved = reservedRecord?.aiActionsReserved ?? 0;
-
-    if (used + reserved >= PLAN_AI_ACTIONS_LIMIT) {
-      return { allowed: false, reason: "quota_exceeded" };
-    }
-
-    if (reservedRecord) {
-      await this.db
-        .update(aiActionsReserved)
-        .set({ aiActionsReserved: reserved + 1, updatedAt: new Date() })
-        .where(eq(aiActionsReserved.id, reservedRecord.id));
-    } else {
-      await this.db.insert(aiActionsReserved).values({
-        userId: input.userId,
-        period,
-        aiActionsReserved: 1,
-      });
-    }
-
-    const [event] = await this.db
-      .insert(usageEvents)
-      .values({
-        userId: input.userId,
-        documentId: input.documentId,
-        billingPeriod: period,
-        featureKey: input.featureKey,
-        eventType: "ai_action",
-        status: "reserved",
-        idempotencyKey: input.idempotencyKey,
-        requestHash: input.requestHash,
-      })
-      .returning();
-
-    return { allowed: true, eventId: event!.id };
+      return { allowed: true, eventId: event!.id };
+    });
   }
 
   async finalizeAiAction(
@@ -938,57 +991,95 @@ export class PostgresAppRepository implements AppRepository {
       return { ok: false, reason: "workspace_mismatch" };
     }
 
-    const existing = (
-      await this.db
-        .select()
-        .from(exportsTable)
-        .where(
-          and(
-            eq(exportsTable.userId, input.userId),
-            eq(exportsTable.idempotencyKey, input.idempotencyKey),
-          ),
-        )
-        .limit(1)
-    )[0];
-
-    if (existing) {
-      return {
-        ok: true,
-        export: toExportRecord(existing),
-        isReplay: true,
-      };
-    }
-
     const period = getCurrentBillingPeriod();
-
-    if ((await this.countInFlightExports(input.userId, period)) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
-      return { ok: false, reason: "too_many_in_flight" };
-    }
-
-    if ((await this.getExportsUsed(input.userId, period)) >= PLAN_EXPORTS_LIMIT) {
-      return { ok: false, reason: "quota_exceeded" };
-    }
+    const planLimits = await this.getPlanLimitsForUser(input.userId);
 
     try {
-      const [row] = await this.db
-        .insert(exportsTable)
-        .values({
-          documentId: input.documentId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          billingPeriod: period,
-          format: "docx",
-          status: "queued",
-          idempotencyKey: input.idempotencyKey,
-          preflightWarnings: input.preflightWarnings,
-        })
-        .returning();
+      return await this.db.transaction(async (tx) => {
+        await acquireUsageLock(tx, `export:${input.userId}:${period}`);
 
-      if (!row) {
-        throw new Error("Export insert failed");
-      }
+        const existing = (
+          await tx
+            .select()
+            .from(exportsTable)
+            .where(
+              and(
+                eq(exportsTable.userId, input.userId),
+                eq(exportsTable.idempotencyKey, input.idempotencyKey),
+              ),
+            )
+            .limit(1)
+        )[0];
 
-      return { ok: true, export: toExportRecord(row), isReplay: false };
+        if (existing) {
+          return {
+            ok: true as const,
+            export: toExportRecord(existing),
+            isReplay: true,
+          };
+        }
+
+        const inFlightCount = Number(
+          (
+            await tx
+              .select({ n: count() })
+              .from(exportsTable)
+              .where(
+                and(
+                  eq(exportsTable.userId, input.userId),
+                  eq(exportsTable.billingPeriod, period),
+                  or(
+                    eq(exportsTable.status, "queued"),
+                    eq(exportsTable.status, "processing"),
+                  ),
+                ),
+              )
+          )[0]?.n ?? 0,
+        );
+
+        if (inFlightCount >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+          return { ok: false as const, reason: "too_many_in_flight" as const };
+        }
+
+        const usageCounterBeforeInsert = (
+          await tx
+            .select()
+            .from(monthlyUsageCounters)
+            .where(
+              and(
+                eq(monthlyUsageCounters.userId, input.userId),
+                eq(monthlyUsageCounters.period, period),
+              ),
+            )
+            .limit(1)
+        )[0];
+
+        const exportsUsed = usageCounterBeforeInsert?.exportsUsed ?? 0;
+
+        if (exportsUsed >= planLimits.exportsLimit) {
+          return { ok: false as const, reason: "quota_exceeded" as const };
+        }
+
+        const [row] = await tx
+          .insert(exportsTable)
+          .values({
+            documentId: input.documentId,
+            userId: input.userId,
+            workspaceId: input.workspaceId,
+            billingPeriod: period,
+            format: "docx",
+            status: "queued",
+            idempotencyKey: input.idempotencyKey,
+            preflightWarnings: input.preflightWarnings,
+          })
+          .returning();
+
+        if (!row) {
+          throw new Error("Export insert failed");
+        }
+
+        return { ok: true as const, export: toExportRecord(row), isReplay: false };
+      });
     } catch (error) {
       const code =
         typeof error === "object" &&
@@ -1118,54 +1209,100 @@ export class PostgresAppRepository implements AppRepository {
           | "too_many_in_flight";
       }
   > {
-    const current = await this.getExportForUser({
-      userId: input.userId,
-      exportId: input.exportId,
-    });
-
-    if (!current) {
-      return { ok: false, reason: "not_found" };
-    }
-
-    if (current.status !== "failed") {
-      return { ok: false, reason: "not_failed" };
-    }
-
     const period = getCurrentBillingPeriod();
+    const planLimits = await this.getPlanLimitsForUser(input.userId);
 
-    if ((await this.countInFlightExports(input.userId, period)) >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
-      return { ok: false, reason: "too_many_in_flight" };
-    }
+    return this.db.transaction(async (tx) => {
+      await acquireUsageLock(tx, `export:${input.userId}:${period}`);
 
-    if ((await this.getExportsUsed(input.userId, period)) >= PLAN_EXPORTS_LIMIT) {
-      return { ok: false, reason: "quota_exceeded" };
-    }
+      const current = (
+        await tx
+          .select()
+          .from(exportsTable)
+          .where(
+            and(
+              eq(exportsTable.id, input.exportId),
+              eq(exportsTable.userId, input.userId),
+            ),
+          )
+          .limit(1)
+      )[0];
 
-    const now = new Date();
-    const [row] = await this.db
-      .update(exportsTable)
-      .set({
-        status: "queued",
-        bullmqJobId: null,
-        errorMessage: null,
-        errorCode: null,
-        processingStartedAt: null,
-        retryCount: current.retryCount + 1,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(exportsTable.id, input.exportId),
-          eq(exportsTable.userId, input.userId),
-        ),
-      )
-      .returning();
+      if (!current) {
+        return { ok: false as const, reason: "not_found" as const };
+      }
 
-    if (!row) {
-      return { ok: false, reason: "not_found" };
-    }
+      if (current.status !== "failed") {
+        return { ok: false as const, reason: "not_failed" as const };
+      }
 
-    return { ok: true, export: toExportRecord(row) };
+      const inFlightCount = Number(
+        (
+          await tx
+            .select({ n: count() })
+            .from(exportsTable)
+            .where(
+              and(
+                eq(exportsTable.userId, input.userId),
+                eq(exportsTable.billingPeriod, period),
+                or(
+                  eq(exportsTable.status, "queued"),
+                  eq(exportsTable.status, "processing"),
+                ),
+              ),
+            )
+        )[0]?.n ?? 0,
+      );
+
+      if (inFlightCount >= MAX_IN_FLIGHT_EXPORTS_PER_USER) {
+        return { ok: false as const, reason: "too_many_in_flight" as const };
+      }
+
+      const usageCounter = (
+        await tx
+          .select()
+          .from(monthlyUsageCounters)
+          .where(
+            and(
+              eq(monthlyUsageCounters.userId, input.userId),
+              eq(monthlyUsageCounters.period, period),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      const exportsUsed = usageCounter?.exportsUsed ?? 0;
+
+      if (exportsUsed >= planLimits.exportsLimit) {
+        return { ok: false as const, reason: "quota_exceeded" as const };
+      }
+
+      const now = new Date();
+      const [row] = await tx
+        .update(exportsTable)
+        .set({
+          status: "queued",
+          bullmqJobId: null,
+          errorMessage: null,
+          errorCode: null,
+          processingStartedAt: null,
+          retryCount: current.retryCount + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(exportsTable.id, input.exportId),
+            eq(exportsTable.userId, input.userId),
+          ),
+        )
+        .returning();
+
+      if (!row) {
+        return { ok: false as const, reason: "not_found" as const };
+      }
+
+      return { ok: true as const, export: toExportRecord(row) };
+    });
   }
 
   private async countInFlightSources(
@@ -1196,6 +1333,7 @@ export class PostgresAppRepository implements AppRepository {
     | { ok: false; reason: "quota_exceeded" | "too_many_in_flight" }
   > {
     const period = getCurrentBillingPeriod();
+    const planLimits = await this.getPlanLimitsForUser(userId);
 
     if (
       (await this.countInFlightSources(userId, period)) >=
@@ -1206,7 +1344,7 @@ export class PostgresAppRepository implements AppRepository {
 
     if (
       (await this.getSourceUploadsUsed(userId, period)) >=
-      PLAN_SOURCE_UPLOADS_LIMIT
+      planLimits.sourceUploadsLimit
     ) {
       return { ok: false, reason: "quota_exceeded" };
     }
@@ -1275,6 +1413,33 @@ export class PostgresAppRepository implements AppRepository {
     return row ? toSourceRecord(row) : null;
   }
 
+  async findSourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(sourcesTable)
+        .where(
+          and(
+            eq(sourcesTable.workspaceId, input.workspaceId),
+            eq(sourcesTable.checksum, input.checksum),
+            or(
+              eq(sourcesTable.status, "queued"),
+              eq(sourcesTable.status, "processing"),
+              eq(sourcesTable.status, "ready"),
+            ),
+            isNull(sourcesTable.deletedAt),
+          ),
+        )
+        .orderBy(desc(sourcesTable.createdAt))
+        .limit(1)
+    )[0];
+
+    return row ? toSourceRecord(row) : null;
+  }
+
   async insertQueuedSourceWithLink(input: {
     id: string;
     workspaceId: string;
@@ -1290,7 +1455,15 @@ export class PostgresAppRepository implements AppRepository {
     idempotencyKey: string | null;
   }): Promise<
     | { ok: true; source: AppSource }
-    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "idempotency_replay"
+          | "quota_exceeded"
+          | "too_many_in_flight"
+          | "document_limit_exceeded";
+        source?: AppSource;
+      }
   > {
     if (input.idempotencyKey) {
       const replay = await this.getSourceByUserIdempotency({
@@ -1304,9 +1477,81 @@ export class PostgresAppRepository implements AppRepository {
 
     const period = input.billingPeriod;
     const now = new Date();
+    const planLimits = await this.getPlanLimitsForUser(input.userId);
 
     try {
       const source = await this.db.transaction(async (tx) => {
+        await acquireUsageLock(tx, `source:${input.userId}:${period}`);
+
+        const activeSourcesForDocument = Number(
+          (
+            await tx
+              .select({ n: count() })
+              .from(documentSourceLinks)
+              .innerJoin(
+                sourcesTable,
+                eq(documentSourceLinks.sourceId, sourcesTable.id),
+              )
+              .where(
+                and(
+                  eq(documentSourceLinks.documentId, input.documentId),
+                  isNull(sourcesTable.deletedAt),
+                  or(
+                    eq(sourcesTable.status, "queued"),
+                    eq(sourcesTable.status, "processing"),
+                    eq(sourcesTable.status, "ready"),
+                  ),
+                ),
+              )
+          )[0]?.n ?? 0,
+        );
+
+        if (activeSourcesForDocument >= 5) {
+          return { ok: false as const, reason: "document_limit_exceeded" as const };
+        }
+
+        const inFlightSources = Number(
+          (
+            await tx
+              .select({ n: count() })
+              .from(sourcesTable)
+              .where(
+                and(
+                  eq(sourcesTable.userId, input.userId),
+                  eq(sourcesTable.billingPeriod, period),
+                  isNull(sourcesTable.deletedAt),
+                  or(
+                    eq(sourcesTable.status, "queued"),
+                    eq(sourcesTable.status, "processing"),
+                  ),
+                ),
+              )
+          )[0]?.n ?? 0,
+        );
+
+        if (inFlightSources >= MAX_IN_FLIGHT_SOURCES_PER_USER) {
+          return { ok: false as const, reason: "too_many_in_flight" as const };
+        }
+
+        const usageCounterBeforeInsert = (
+          await tx
+            .select()
+            .from(monthlyUsageCounters)
+            .where(
+              and(
+                eq(monthlyUsageCounters.userId, input.userId),
+                eq(monthlyUsageCounters.period, period),
+              ),
+            )
+            .limit(1)
+        )[0];
+
+        const sourceUploadsUsed = usageCounterBeforeInsert?.sourceUploadsUsed ?? 0;
+
+        if (sourceUploadsUsed >= planLimits.sourceUploadsLimit) {
+          return { ok: false as const, reason: "quota_exceeded" as const };
+        }
+
         const [inserted] = await tx
           .insert(sourcesTable)
           .values({
@@ -1335,7 +1580,7 @@ export class PostgresAppRepository implements AppRepository {
           sourceId: inserted.id,
         });
 
-        const counters = (
+        const usageCounterAfterInsert = (
           await tx
             .select()
             .from(monthlyUsageCounters)
@@ -1350,14 +1595,15 @@ export class PostgresAppRepository implements AppRepository {
 
         const storageDelta = input.fileSizeBytes;
 
-        if (counters) {
+        if (usageCounterAfterInsert) {
           await tx
             .update(monthlyUsageCounters)
             .set({
-              storageUsedBytes: counters.storageUsedBytes + storageDelta,
+              storageUsedBytes:
+                usageCounterAfterInsert.storageUsedBytes + storageDelta,
               updatedAt: now,
             })
-            .where(eq(monthlyUsageCounters.id, counters.id));
+            .where(eq(monthlyUsageCounters.id, usageCounterAfterInsert.id));
         } else {
           await tx.insert(monthlyUsageCounters).values({
             userId: input.userId,
@@ -1366,10 +1612,14 @@ export class PostgresAppRepository implements AppRepository {
           });
         }
 
-        return inserted;
+        return { ok: true as const, source: inserted };
       });
 
-      return { ok: true, source: toSourceRecord(source) };
+      if (!source.ok) {
+        return source;
+      }
+
+      return { ok: true, source: toSourceRecord(source.source) };
     } catch (error) {
       const code =
         typeof error === "object" &&
@@ -1556,6 +1806,7 @@ export class PostgresAppRepository implements AppRepository {
   async retryFailedSource(input: {
     userId: string;
     sourceId: string;
+    forceOcr?: boolean;
   }): Promise<
     | { ok: true; source: AppSource }
     | {
@@ -1567,61 +1818,103 @@ export class PostgresAppRepository implements AppRepository {
           | "too_many_in_flight";
       }
   > {
-    const current = await this.getSourceForUser({
-      userId: input.userId,
-      sourceId: input.sourceId,
-    });
-
-    if (!current) {
-      return { ok: false, reason: "not_found" };
-    }
-
-    if (current.status !== "failed") {
-      return { ok: false, reason: "not_failed" };
-    }
-
     const period = getCurrentBillingPeriod();
+    const planLimits = await this.getPlanLimitsForUser(input.userId);
 
-    if (
-      (await this.countInFlightSources(input.userId, period)) >=
-      MAX_IN_FLIGHT_SOURCES_PER_USER
-    ) {
-      return { ok: false, reason: "too_many_in_flight" };
-    }
+    return this.db.transaction(async (tx) => {
+      await acquireUsageLock(tx, `source:${input.userId}:${period}`);
 
-    if (
-      (await this.getSourceUploadsUsed(input.userId, period)) >=
-      PLAN_SOURCE_UPLOADS_LIMIT
-    ) {
-      return { ok: false, reason: "quota_exceeded" };
-    }
+      const current = (
+        await tx
+          .select()
+          .from(sourcesTable)
+          .where(
+            and(
+              eq(sourcesTable.id, input.sourceId),
+              eq(sourcesTable.userId, input.userId),
+              isNull(sourcesTable.deletedAt),
+            ),
+          )
+          .limit(1)
+      )[0];
 
-    const now = new Date();
-    const [row] = await this.db
-      .update(sourcesTable)
-      .set({
-        status: "queued",
-        bullmqJobId: null,
-        errorMessage: null,
-        errorCode: null,
-        processingStartedAt: null,
-        retryCount: current.retryCount + 1,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(sourcesTable.id, input.sourceId),
-          eq(sourcesTable.userId, input.userId),
-          isNull(sourcesTable.deletedAt),
-        ),
-      )
-      .returning();
+      if (!current) {
+        return { ok: false as const, reason: "not_found" as const };
+      }
 
-    if (!row) {
-      return { ok: false, reason: "not_found" };
-    }
+      if (current.status !== "failed") {
+        return { ok: false as const, reason: "not_failed" as const };
+      }
 
-    return { ok: true, source: toSourceRecord(row) };
+      const inFlightSources = Number(
+        (
+          await tx
+            .select({ n: count() })
+            .from(sourcesTable)
+            .where(
+              and(
+                eq(sourcesTable.userId, input.userId),
+                eq(sourcesTable.billingPeriod, period),
+                isNull(sourcesTable.deletedAt),
+                or(
+                  eq(sourcesTable.status, "queued"),
+                  eq(sourcesTable.status, "processing"),
+                ),
+              ),
+            )
+        )[0]?.n ?? 0,
+      );
+
+      if (inFlightSources >= MAX_IN_FLIGHT_SOURCES_PER_USER) {
+        return { ok: false as const, reason: "too_many_in_flight" as const };
+      }
+
+      const counters = (
+        await tx
+          .select()
+          .from(monthlyUsageCounters)
+          .where(
+            and(
+              eq(monthlyUsageCounters.userId, input.userId),
+              eq(monthlyUsageCounters.period, period),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      const sourceUploadsUsed = counters?.sourceUploadsUsed ?? 0;
+
+      if (sourceUploadsUsed >= planLimits.sourceUploadsLimit) {
+        return { ok: false as const, reason: "quota_exceeded" as const };
+      }
+
+      const now = new Date();
+      const [row] = await tx
+        .update(sourcesTable)
+        .set({
+          status: "queued",
+          bullmqJobId: null,
+          errorMessage: null,
+          errorCode: null,
+          processingStartedAt: null,
+          retryCount: current.retryCount + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(sourcesTable.id, input.sourceId),
+            eq(sourcesTable.userId, input.userId),
+            isNull(sourcesTable.deletedAt),
+          ),
+        )
+        .returning();
+
+      if (!row) {
+        return { ok: false as const, reason: "not_found" as const };
+      }
+
+      return { ok: true as const, source: toSourceRecord(row) };
+    });
   }
 
   async softDeleteSource(input: {

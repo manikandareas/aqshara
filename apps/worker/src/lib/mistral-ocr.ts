@@ -39,6 +39,10 @@ export async function runMistralOcrOnPdfKey(input: {
   }
 
   const base = getMistralApiBaseUrl().replace(/\/$/, "");
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.MISTRAL_OCR_TIMEOUT_MS ?? 45000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
   const body: Record<string, unknown> = {
     model: "mistral-ocr-latest",
     document: {
@@ -51,41 +55,46 @@ export async function runMistralOcrOnPdfKey(input: {
     body.pages = input.pages;
   }
 
-  const res = await fetch(`${base}/v1/ocr`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(`${base}/v1/ocr`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(
-      `Mistral OCR failed: ${res.status} ${errText.slice(0, 500)}`,
-    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(
+        `Mistral OCR failed: ${res.status} ${errText.slice(0, 500)}`,
+      );
+    }
+
+    const json = (await res.json()) as {
+      pages?: Array<{ markdown?: string; index?: number }>;
+    };
+
+    const pages =
+      json.pages
+        ?.filter(
+          (page): page is { markdown: string; index: number } =>
+            typeof page.index === "number" &&
+            typeof page.markdown === "string" &&
+            page.markdown.length > 0,
+        )
+        .map((page) => ({
+          index: page.index,
+          markdown: page.markdown,
+        })) ?? [];
+
+    return {
+      pages,
+      text: pages.map((page) => page.markdown).join("\n\n"),
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const json = (await res.json()) as {
-    pages?: Array<{ markdown?: string; index?: number }>;
-  };
-
-  const pages =
-    json.pages
-      ?.filter(
-        (page): page is { markdown: string; index: number } =>
-          typeof page.index === "number" &&
-          typeof page.markdown === "string" &&
-          page.markdown.length > 0,
-      )
-      .map((page) => ({
-        index: page.index,
-        markdown: page.markdown,
-      })) ?? [];
-
-  return {
-    pages,
-    text: pages.map((page) => page.markdown).join("\n\n"),
-  };
 }

@@ -12,9 +12,16 @@ export type GenerateOutlineResult =
   | { type: "replay"; outline: OutlineDraft; usage: Record<string, never> };
 
 export type GenerateProposalBody = {
-  action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify";
+  action:
+    | "continue"
+    | "rewrite"
+    | "paraphrase"
+    | "expand"
+    | "simplify"
+    | "section_draft";
   targetBlockIds: string[];
   idempotencyKey: string;
+  sectionPrompt?: string;
 };
 
 export type GenerateProposalResult =
@@ -46,14 +53,25 @@ export class WritingService {
   validateProposalBody(body: GenerateProposalBody):
     | { ok: true }
     | { ok: false; message: string } {
-    if (body.action === "continue" && body.targetBlockIds.length !== 1) {
-      return { ok: false, message: "Continue requires exactly 1 block" };
-    }
     if (
-      ["rewrite", "paraphrase", "expand", "simplify"].includes(body.action) &&
-      body.targetBlockIds.length === 0
+      body.action === "continue" ||
+      body.action === "section_draft"
     ) {
+      if (body.targetBlockIds.length !== 1) {
+        return {
+          ok: false,
+          message: `${body.action} requires exactly 1 block`,
+        };
+      }
+    } else if (body.targetBlockIds.length === 0) {
       return { ok: false, message: "Action requires at least 1 block" };
+    }
+
+    if (body.action === "section_draft" && !body.sectionPrompt?.trim()) {
+      return {
+        ok: false,
+        message: "section_draft requires a sectionPrompt",
+      };
     }
     return { ok: true };
   }
@@ -63,6 +81,7 @@ export class WritingService {
     documentId: string;
     topic: string;
     idempotencyKey: string;
+    templateCode?: "blank" | "general_paper" | "proposal" | "skripsi";
   }): Promise<GenerateOutlineResult> {
     const document = await this.repository.getDocumentById({
       userId: input.userId,
@@ -77,7 +96,11 @@ export class WritingService {
         userId: input.userId,
         featureKey: "outline",
         idempotencyKey: input.idempotencyKey,
-        requestHash: input.topic,
+        requestHash: JSON.stringify({
+          topic: input.topic,
+          documentType: document.type,
+          templateCode: input.templateCode ?? document.type,
+        }),
       });
 
       if (!reservation.allowed) {
@@ -85,6 +108,9 @@ export class WritingService {
           return { type: "quota_exceeded" };
         }
         if (reservation.reason === "idempotency_mismatch") {
+          return { type: "duplicate_request" };
+        }
+        if (reservation.reason === "duplicate_in_flight") {
           return { type: "duplicate_request" };
         }
       }
@@ -101,6 +127,9 @@ export class WritingService {
         const outline = await this.aiService.generateOutlineDraft({
           action: "outline",
           topic: input.topic,
+          documentType: document.type,
+          templateCode: input.templateCode ?? document.type,
+          context: document.title,
         });
 
         await this.repository.finalizeAiAction(
@@ -148,6 +177,7 @@ export class WritingService {
         requestHash: JSON.stringify({
           action: body.action,
           targetBlockIds: body.targetBlockIds,
+          sectionPrompt: body.sectionPrompt ?? null,
         }),
       });
 
@@ -161,6 +191,12 @@ export class WritingService {
             message: "Reused idempotency key with different payload",
           };
         }
+        if (reservation.reason === "duplicate_in_flight") {
+          return {
+            type: "duplicate_request",
+            message: "A request with this idempotency key is already in flight",
+          };
+        }
       }
 
       if (reservation.isReplay) {
@@ -171,7 +207,10 @@ export class WritingService {
         return {
           type: "replay",
           proposal: existing!,
-          allowedApplyModes: ["replace", "insert_below"],
+          allowedApplyModes:
+            body.action === "section_draft"
+              ? ["insert_below"]
+              : ["replace", "insert_below"],
         };
       }
 
@@ -179,14 +218,43 @@ export class WritingService {
         const targetBlocks = document.contentJson.filter((b: { id: string }) =>
           body.targetBlockIds.includes(b.id),
         );
+
+        if (targetBlocks.length !== body.targetBlockIds.length) {
+          return {
+            type: "invalid_target",
+            message: "One or more target blocks do not exist",
+          };
+        }
+
+        if (
+          (body.action === "continue" || body.action === "section_draft") &&
+          targetBlocks.length !== 1
+        ) {
+          return {
+            type: "invalid_target",
+            message: `${body.action} requires exactly 1 target block`,
+          };
+        }
+
         const text = toPlainText(
           targetBlocks as Parameters<typeof toPlainText>[0],
         );
+        const aiText =
+          body.action === "section_draft"
+            ? body.sectionPrompt?.trim() ?? text
+            : text;
 
         const nodes = await this.aiService.generateWritingProposal({
           action: body.action,
-          text,
-          context: document.title,
+          text: aiText,
+          context:
+            body.action === "section_draft"
+              ? `${document.title}\n\nTarget text:\n${text}`.trim()
+              : document.title,
+          instructions:
+            body.action === "section_draft" ? body.sectionPrompt : undefined,
+          sectionPrompt:
+            body.action === "section_draft" ? body.sectionPrompt : undefined,
         });
 
         const proposal = await this.repository.createDocumentChangeProposal({
@@ -195,10 +263,10 @@ export class WritingService {
           proposalJson: {
             id: randomUUID(),
             targetBlockIds: body.targetBlockIds,
-            action: "replace",
+            action: body.action === "section_draft" ? "insert_below" : "replace",
             nodes,
           },
-          actionType: "replace",
+          actionType: body.action === "section_draft" ? "insert_below" : "replace",
           baseUpdatedAt: document.updatedAt,
           targetBlockIds: body.targetBlockIds,
         });
@@ -210,7 +278,10 @@ export class WritingService {
         return {
           type: "success",
           proposal,
-          allowedApplyModes: ["replace", "insert_below"],
+          allowedApplyModes:
+            body.action === "section_draft"
+              ? ["insert_below"]
+              : ["replace", "insert_below"],
         };
       } catch (error) {
         if (reservation.eventId) {

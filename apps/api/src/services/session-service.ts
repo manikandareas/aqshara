@@ -5,7 +5,7 @@ import type { AppUsage } from "../lib/api-types.js";
 export type SessionMePayload = {
   user: AppUser;
   workspace: AppBootstrap["workspace"];
-  plan: { code: AppUser["planCode"]; label: "Free" };
+  plan: { code: AppUser["planCode"]; label: "Free" | "Pro" };
   usage: AppUsage;
   documentStats: { activeCount: number; archivedCount: number };
   onboarding: {
@@ -35,7 +35,7 @@ export class SessionService {
       workspace: bootstrap.workspace,
       plan: {
         code: bootstrap.user.planCode,
-        label: "Free",
+        label: bootstrap.user.planCode === "pro" ? "Pro" : "Free",
       },
       usage,
       documentStats: {

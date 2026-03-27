@@ -11,7 +11,7 @@ import {
   writeExportFile,
 } from "@aqshara/storage";
 import { createApp } from "./app.js";
-import { PLAN_EXPORTS_LIMIT } from "./lib/plan-limits.js";
+import { PLAN_LIMITS } from "./lib/plan-limits.js";
 import { getCurrentBillingPeriod } from "./repositories/billing-period.js";
 import {
   createMemoryAppContext,
@@ -423,6 +423,36 @@ describe("authenticated session resolution", () => {
     assert.equal(payload.code, "account_provisioning");
   });
 
+  it("self-heals provisioning from Clerk when the local account is missing", async () => {
+    const context = createMemoryAppContext();
+    context.getClerkUserById = async (clerkUserId) => ({
+      id: clerkUserId,
+      primaryEmailAddressId: "email_1",
+      emailAddresses: [
+        {
+          id: "email_1",
+          emailAddress: "selfheal@example.com",
+        },
+      ],
+      firstName: "Self",
+      lastName: "Heal",
+      username: null,
+      imageUrl: null,
+    });
+    const app = createApp(context);
+
+    const response = await app.request("http://localhost/v1/me", {
+      headers: {
+        "x-test-user-id": "user_self_heal",
+      },
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.user.email, "selfheal@example.com");
+    assert.equal(payload.plan.code, "free");
+  });
+
   it("returns rich session bootstrap data including documentStats and onboarding", async () => {
     const context = createMemoryAppContext();
     const app = createApp(context);
@@ -452,6 +482,25 @@ describe("authenticated session resolution", () => {
     });
     assert.ok("period" in payload.usage);
     assert.ok("aiActionsUsed" in payload.usage);
+
+    const badBootstrap = await app.request(
+      "http://localhost/v1/documents/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          title: "Mismatched template",
+          type: "skripsi",
+          templateCode: "proposal",
+        }),
+      },
+    );
+
+    assert.equal(badBootstrap.status, 400);
+    assert.equal((await badBootstrap.json()).code, "bad_request");
 
     await app.request("http://localhost/v1/documents", {
       method: "POST",
@@ -1367,6 +1416,51 @@ describe("AI action error handling", () => {
   });
 });
 
+describe("AI validation", () => {
+  it("rejects ai proposal generation when target block ids are stale", async () => {
+    const context = createMemoryAppContext();
+    const app = createApp(context);
+    const clerkId = "user_invalid_target";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createClerkUserEvent("user.created", { id: clerkId }),
+      ),
+    });
+
+    const createRes = await app.request("http://localhost/v1/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-user-id": clerkId,
+      },
+      body: JSON.stringify({ title: "Target", type: "general_paper" }),
+    });
+    const { document } = await createRes.json();
+
+    const res = await app.request(
+      `http://localhost/v1/documents/${document.id}/ai/proposals`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-user-id": clerkId,
+        },
+        body: JSON.stringify({
+          action: "rewrite",
+          targetBlockIds: ["missing-block"],
+          idempotencyKey: "invalid-target-test",
+        }),
+      },
+    );
+
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, "invalid_target");
+  });
+});
+
 describe("API error events", () => {
   it("emits an error_event for unauthenticated session access", async () => {
     const app = createApp(createMemoryAppContext());
@@ -1715,7 +1809,7 @@ describe("API error events", () => {
     );
     const { export: exp } = await post.json();
 
-    const mem = context.repository as MemoryRepository;
+    const mem = context.repository as unknown as MemoryRepository;
     const row = mem.state.exports.find((item) => item.id === exp.id);
     assert.ok(row);
     row.storageKey = createStorageKey("exports", user.id, `${exp.id}.docx`);
@@ -1758,14 +1852,14 @@ describe("API error events", () => {
     const { user } = await meRes.json();
     const period = getCurrentBillingPeriod();
 
-    const mem = context.repository as MemoryRepository;
+    const mem = context.repository as unknown as MemoryRepository;
     mem.state.monthlyUsageCounters.push({
       id: randomUUID(),
       userId: user.id,
       period,
       aiActionsUsed: 0,
       sourceUploadsUsed: 0,
-      exportsUsed: PLAN_EXPORTS_LIMIT,
+      exportsUsed: PLAN_LIMITS.free.exportsLimit,
       storageUsedBytes: 0,
       updatedAt: new Date().toISOString(),
     });
@@ -1906,7 +2000,7 @@ describe("DOCX exports API", () => {
       );
       const { export: exp } = await post.json();
 
-      const mem = context.repository as MemoryRepository;
+      const mem = context.repository as unknown as MemoryRepository;
       const row = mem.state.exports.find((e) => e.id === exp.id);
       assert.ok(row);
       const key = createStorageKey("exports", user.id, `${exp.id}.docx`);
@@ -1951,14 +2045,14 @@ describe("DOCX exports API", () => {
     const { user } = await meRes.json();
     const period = getCurrentBillingPeriod();
 
-    const mem = context.repository as MemoryRepository;
+    const mem = context.repository as unknown as MemoryRepository;
     mem.state.monthlyUsageCounters.push({
       id: randomUUID(),
       userId: user.id,
       period,
       aiActionsUsed: 0,
       sourceUploadsUsed: 0,
-      exportsUsed: PLAN_EXPORTS_LIMIT,
+      exportsUsed: PLAN_LIMITS.free.exportsLimit,
       storageUsedBytes: 0,
       updatedAt: new Date().toISOString(),
     });
@@ -2026,7 +2120,7 @@ describe("DOCX exports API", () => {
     );
     const { export: exp } = await post.json();
 
-    const mem = context.repository as MemoryRepository;
+    const mem = context.repository as unknown as MemoryRepository;
     const row = mem.state.exports.find((e) => e.id === exp.id)!;
     row.status = "failed";
     row.errorCode = "test_failure";
@@ -2256,7 +2350,7 @@ describe("sources API", () => {
       });
       assert.equal(registerRes.status, 200);
 
-      const mem = context.repository as MemoryRepository;
+      const mem = context.repository as unknown as MemoryRepository;
       const row = mem.state.sources.find((source) => source.id === sourceId);
       assert.ok(row);
       row.status = "failed";

@@ -8,6 +8,7 @@ const payload = {
   userId: "user-1",
   workspaceId: "workspace-1",
   idempotencyKey: "idem-1",
+  forceOcr: false,
 } as const;
 
 type JobState = {

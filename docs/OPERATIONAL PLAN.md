@@ -32,6 +32,13 @@ Status dokumen ini per update terbaru:
   - Rate limiting sensitif di API sudah dipindahkan ke Redis-backed route-family buckets dengan fail-open/fail-closed policy per jalur.
   - Structured `error_event` monitoring sudah aktif untuk auth/session, document save, AI, export API, dan worker export failures.
   - Structured launch funnel event untuk export tetap dipertahankan, sehingga launch analytics dan operational failure stream terpisah dengan jelas.
+- Sprint 4 backend source-processing beta sudah selesai diimplementasikan:
+  - Upload source PDF dengan validation, active-source cap per document, dan checksum dedupe untuk queued/processing/ready state.
+  - Retry source now carries explicit `forceOcr` from API to queue payload to worker.
+  - Worker source parsing has OCR timeout/abort handling, selective OCR fallback, and safer retry/terminal failure behavior.
+  - Worker startup reconciliation handles source/job rows stuck in `processing` so crash recovery does not depend on manual DB cleanup.
+  - Source quota booking/reservation follows the same plan-aware transactional guardrails as AI/export flows.
+- Sprint 1-4 backend scope sekarang sudah dianggap complete; sisa pekerjaan berikutnya lebih banyak berada pada frontend integration dan phase 2 beta feature expansion.
 - Struktur aktif repo sekarang adalah:
   - `apps/web` untuk product frontend Next.js
   - `apps/api` untuk Hono REST API
@@ -107,6 +114,9 @@ Status dokumen ini per update terbaru:
 - `pnpm client:generate`
 - `pnpm db:generate`
 - `pnpm build`
+- `pnpm --filter @aqshara/api test`
+- `pnpm --filter @aqshara/worker test`
+- `pnpm --filter @aqshara/observability test`
 
 ### Yang masih belum selesai untuk scope launch
 
@@ -117,13 +127,13 @@ Status dokumen ini per update terbaru:
 
 ### Implikasi ke execution plan
 
-- Sprint 1 & Sprint 2 (Backend foundation) sudah selesai; jalur inti dan AI layer sudah operasional.
+- Sprint 1-4 backend foundation sudah selesai; jalur inti, AI layer, export hardening, dan source-processing beta sudah operasional.
 - Fokus berikutnya bergeser ke:
   - integrasi frontend dengan AI proposal lifecycle,
   - implementasi UI onboarding berbasis template & outline,
   - hardening auth provisioning dan operational webhook flow,
   - usage/quota enforcement di layer UI,
-  - masuk ke Epic 7 (DOCX Export) dan Sprint 3.
+  - research beta / Sprint 5 untuk summary dan Q&A berbasis source.
 
 ---
 
@@ -766,6 +776,17 @@ Membangun pipeline upload dan parsing file.
 
 - User dapat mengunggah file dan melihat progres pemrosesan yang jelas.
 - File berhasil diparse atau gagal dengan pesan yang bisa ditindaklanjuti.
+
+### Status implementasi sprint
+
+- Sudah selesai di repo (Backend focus):
+  - Upload URL, register, list, status, retry, dan delete source endpoints.
+  - Active-source cap per document, in-flight dedupe, retry semantics yang eksplisit, dan worker recovery untuk job stuck.
+  - OCR fallback selective dengan timeout/abort handling pada worker.
+  - Queue payload dan OpenAPI contract sudah sinkron dengan backend source flow terbaru.
+- Masih tersisa / perlu closeout:
+  - Source summary/Q&A beta flow dari Sprint 5.
+  - UX frontend untuk progress/status/error handling source ingestion.
 
 ---
 

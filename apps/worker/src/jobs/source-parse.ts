@@ -81,6 +81,13 @@ type SourceParseDeps = {
   logLaunchEvent: typeof logLaunchEvent;
 };
 
+class SourceParseRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceParseRetryableError";
+  }
+}
+
 async function getDocumentRow(
   db: unknown,
   documentId: string,
@@ -190,7 +197,7 @@ async function failSourceParseJob(input: {
     throw new UnrecoverableError(input.errorMessage);
   }
 
-  throw new Error(input.errorMessage);
+  throw new SourceParseRetryableError(input.errorMessage);
 }
 
 async function markSourceFailedBestEffort(input: {
@@ -224,6 +231,7 @@ export async function processSourceParseJob(
   const db = resolvedDeps.createDatabase();
   const finalAttempt =
     attempt.attemptsMade + 1 >= Math.max(1, attempt.maxAttempts);
+  const forceOcr = payload.forceOcr ?? false;
 
   let row;
   try {
@@ -450,7 +458,9 @@ export async function processSourceParseJob(
       });
     }
 
-    const weakIndices = resolvedDeps.pageIndicesNeedingOcr(extracted.pages);
+    const weakIndices = forceOcr
+      ? extracted.pages.map((_, index) => index)
+      : resolvedDeps.pageIndicesNeedingOcr(extracted.pages);
     let textOut = extracted.pages
       .map((page, index) => `## Page ${index + 1}\n\n${page}`)
       .join("\n\n");
@@ -471,6 +481,20 @@ export async function processSourceParseJob(
           textOut = mergedPages
             .map((pageText, index) => `## Page ${index + 1}\n\n${pageText}`)
             .join("\n\n");
+        } else if (forceOcr) {
+          await failSourceParseJob({
+            db,
+            deps: resolvedDeps,
+            payload,
+            bullmqJobId,
+            errorCode: "ocr_forced_unavailable",
+            errorMessage:
+              "OCR was requested explicitly but no OCR output was available",
+            retryable: true,
+            attemptsMade: attempt.attemptsMade,
+            maxAttempts: attempt.maxAttempts,
+            failureClass: "system",
+          });
         } else if (textOut.trim().length < 80) {
           await failSourceParseJob({
             db,
@@ -555,7 +579,10 @@ export async function processSourceParseJob(
       parsedTextSizeBytes: body.length,
     });
   } catch (error) {
-    if (error instanceof UnrecoverableError) {
+    if (
+      error instanceof UnrecoverableError ||
+      error instanceof SourceParseRetryableError
+    ) {
       throw error;
     }
 

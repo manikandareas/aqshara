@@ -3,6 +3,14 @@ import { UnrecoverableError, Worker, type Job } from "bullmq";
 import { getRedisConnection } from "@aqshara/config";
 import { createLogger } from "@aqshara/observability";
 import {
+  createDatabase,
+  exportsTable,
+  sourcesTable,
+} from "@aqshara/database";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { markExportFailed } from "@aqshara/database/export-job";
+import { markSourceFailed } from "@aqshara/database/source-job";
+import {
   exportDocxJobName,
   exportDocxPayloadSchema,
   parseSourceJobName,
@@ -16,6 +24,52 @@ loadWorkspaceEnv();
 
 const logger = createLogger("worker");
 const connection = getRedisConnection();
+const RECOVERY_STALE_MS = Number(process.env.WORKER_RECOVERY_STALE_MS ?? 15 * 60 * 1000);
+
+async function reconcileStuckJobs(): Promise<void> {
+  const db = createDatabase();
+  const cutoff = Date.now() - RECOVERY_STALE_MS;
+
+  const staleExports = await db
+    .select()
+    .from(exportsTable)
+    .where(and(eq(exportsTable.status, "processing"), isNotNull(exportsTable.processingStartedAt)));
+
+  for (const row of staleExports) {
+    const startedAt = row.processingStartedAt?.getTime() ?? 0;
+    if (startedAt > cutoff) {
+      continue;
+    }
+
+    await markExportFailed(db, {
+      exportId: row.id,
+      errorCode: "worker_recovered_stale_processing",
+      errorMessage: "Export was recovered after worker restart",
+    });
+  }
+
+  const staleSources = await db
+    .select()
+    .from(sourcesTable)
+    .where(and(eq(sourcesTable.status, "processing"), isNotNull(sourcesTable.processingStartedAt)));
+
+  for (const row of staleSources) {
+    const startedAt = row.processingStartedAt?.getTime() ?? 0;
+    if (startedAt > cutoff) {
+      continue;
+    }
+
+    await markSourceFailed(db, {
+      sourceId: row.id,
+      errorCode: "worker_recovered_stale_processing",
+      errorMessage: "Source was recovered after worker restart",
+    });
+  }
+}
+
+void reconcileStuckJobs().catch((error) => {
+  logger.error("Worker recovery sweep failed", error);
+});
 
 const exportWorker = new Worker(
   queueNames.exportDocx,
@@ -73,8 +127,24 @@ exportWorker.on("failed", (job, error) => {
   logger.error(`Job ${job?.id ?? "unknown"} failed`, error);
 });
 
+exportWorker.on("stalled", (jobId) => {
+  logger.warn(`Export job stalled jobId=${jobId}`);
+});
+
+exportWorker.on("error", (error) => {
+  logger.error("Export worker error", error);
+});
+
 parseSourceWorker.on("failed", (job, error) => {
   logger.error(`Job ${job?.id ?? "unknown"} failed`, error);
+});
+
+parseSourceWorker.on("stalled", (jobId) => {
+  logger.warn(`Source job stalled jobId=${jobId}`);
+});
+
+parseSourceWorker.on("error", (error) => {
+  logger.error("Source worker error", error);
 });
 
 exportWorker.on("completed", (job) => {

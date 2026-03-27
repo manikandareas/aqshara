@@ -5,6 +5,19 @@ export type ClerkUserEmailAddress = {
   email_address: string | null;
 };
 
+export type ClerkUserRecord = {
+  id: string;
+  primaryEmailAddressId: string | null;
+  emailAddresses: Array<{
+    id: string | null;
+    emailAddress: string | null;
+  }>;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
+  imageUrl: string | null;
+};
+
 export type ClerkProvisioningUser = {
   id: string;
   primary_email_address_id: string | null;
@@ -36,4 +49,21 @@ export function toProvisioningIdentity(
       null,
     avatarUrl: user.image_url ?? null,
   };
+}
+
+export function toProvisioningIdentityFromClerkUser(
+  user: ClerkUserRecord,
+): AuthIdentity | null {
+  return toProvisioningIdentity({
+    id: user.id,
+    primary_email_address_id: user.primaryEmailAddressId,
+    email_addresses: user.emailAddresses.map((entry) => ({
+      id: entry.id,
+      email_address: entry.emailAddress,
+    })),
+    first_name: user.firstName,
+    last_name: user.lastName,
+    username: user.username,
+    image_url: user.imageUrl,
+  });
 }

@@ -11,6 +11,7 @@ import {
 } from "../openapi/schemas/documents.js";
 import type { ApiEnv } from "../hono-env.js";
 import type { DocumentStatus, DocumentType } from "../lib/app-context.js";
+import { InvalidTemplateCombinationError } from "../services/document-service.js";
 import {
   createErrorPayload,
   getDocumentId,
@@ -408,6 +409,12 @@ const generateOutlineRoute = createRoute({
           schema: z.object({
             topic: z.string().min(1),
             idempotencyKey: z.string().min(1),
+            templateCode: z.enum([
+              "blank",
+              "general_paper",
+              "proposal",
+              "skripsi",
+            ]).optional(),
           }),
         },
       },
@@ -453,7 +460,6 @@ const applyOutlineRoute = createRoute({
           schema: z.object({
             outline: OutlineDraftSchema,
             baseUpdatedAt: z.string().datetime(),
-            templateCode: z.string().optional(),
           }),
         },
       },
@@ -500,9 +506,11 @@ const generateProposalRoute = createRoute({
               "paraphrase",
               "expand",
               "simplify",
+              "section_draft",
             ]),
             targetBlockIds: z.array(z.string()),
             idempotencyKey: z.string().min(1),
+            sectionPrompt: z.string().optional(),
           }),
         },
       },
@@ -733,15 +741,25 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
       templateCode: "blank" | "general_paper" | "proposal" | "skripsi";
     };
 
-    const updatedDocument = await context.services.documents.bootstrapFromTemplate(
-      {
-        userId: result.bootstrap.user.id,
-        title: body.title,
-        type: body.type,
-        templateCode: body.templateCode,
-      },
-    );
-    return c.json({ document: updatedDocument }, 201);
+    try {
+      const updatedDocument = await context.services.documents.bootstrapFromTemplate(
+        {
+          userId: result.bootstrap.user.id,
+          title: body.title,
+          type: body.type,
+          templateCode: body.templateCode,
+        },
+      );
+      return c.json({ document: updatedDocument }, 201);
+    } catch (error) {
+      if (error instanceof InvalidTemplateCombinationError) {
+        return c.json(
+          createErrorPayload("bad_request", error.message, getRequestId(c)),
+          400,
+        );
+      }
+      throw error;
+    }
   }) as never);
 
   app.openapi(generateOutlineRoute, (async (c: Context<ApiEnv>) => {
@@ -752,6 +770,7 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
     const body = (await c.req.json()) as {
       topic: string;
       idempotencyKey: string;
+      templateCode?: "blank" | "general_paper" | "proposal" | "skripsi";
     };
 
     const outlineResult = await context.services.writing.generateOutline({
@@ -759,6 +778,7 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
       documentId,
       topic: body.topic,
       idempotencyKey: body.idempotencyKey,
+      templateCode: body.templateCode,
     });
 
     if (outlineResult.type === "not_found") {
@@ -807,7 +827,6 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
     const body = (await c.req.json()) as {
       outline: OutlineDraft;
       baseUpdatedAt: string;
-      templateCode?: string;
     };
 
     const applyResult = await context.services.documents.applyOutline({
@@ -845,9 +864,16 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
     if (result.error) return result.error;
     const documentId = getDocumentId(c);
     const body = (await c.req.json()) as {
-      action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify";
+      action:
+        | "continue"
+        | "rewrite"
+        | "paraphrase"
+        | "expand"
+        | "simplify"
+        | "section_draft";
       targetBlockIds: string[];
       idempotencyKey: string;
+      sectionPrompt?: string;
     };
 
     const genResult = await context.services.writing.generateProposal(

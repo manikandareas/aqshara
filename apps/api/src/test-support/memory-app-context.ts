@@ -24,13 +24,12 @@ import type {
   Workspace,
 } from "../repositories/app-repository.types.js";
 import { StaleDocumentSaveError } from "../repositories/app-repository.types.js";
+import type { ClerkUserRecord } from "../lib/clerk-provisioning.js";
 import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
 import {
   MAX_IN_FLIGHT_EXPORTS_PER_USER,
   MAX_IN_FLIGHT_SOURCES_PER_USER,
-  PLAN_EXPORTS_LIMIT,
-  PLAN_AI_ACTIONS_LIMIT,
-  PLAN_SOURCE_UPLOADS_LIMIT,
+  PLAN_LIMITS,
 } from "../lib/plan-limits.js";
 import type { ExportDocxPayload, ParseSourcePayload } from "@aqshara/queue";
 import { createApiServices } from "../services/index.js";
@@ -380,7 +379,7 @@ export class MemoryRepository implements AppRepository {
     requestHash?: string;
   }): Promise<{
     allowed: boolean;
-    reason?: "idempotency_mismatch" | "quota_exceeded";
+    reason?: "idempotency_mismatch" | "quota_exceeded" | "duplicate_in_flight";
     eventId?: string;
     isReplay?: boolean;
     metadataJson?: unknown;
@@ -397,6 +396,9 @@ export class MemoryRepository implements AppRepository {
         if (existing.requestHash !== input.requestHash) {
           return { allowed: false, reason: "idempotency_mismatch" };
         }
+        if (existing.status === "reserved") {
+          return { allowed: false, reason: "duplicate_in_flight" };
+        }
         return {
           allowed: true,
           eventId: existing.id,
@@ -406,7 +408,7 @@ export class MemoryRepository implements AppRepository {
       }
     }
 
-    const limit = PLAN_AI_ACTIONS_LIMIT;
+    const limit = PLAN_LIMITS.free.aiActionsLimit;
 
     const counters = this.state.monthlyUsageCounters.find(
       (c) => c.userId === input.userId && c.period === period,
@@ -647,7 +649,7 @@ export class MemoryRepository implements AppRepository {
       return { ok: false, reason: "too_many_in_flight" };
     }
 
-    if (this.getExportsUsed(input.userId, period) >= PLAN_EXPORTS_LIMIT) {
+    if (this.getExportsUsed(input.userId, period) >= PLAN_LIMITS.free.exportsLimit) {
       return { ok: false, reason: "quota_exceeded" };
     }
 
@@ -764,7 +766,7 @@ export class MemoryRepository implements AppRepository {
       return { ok: false, reason: "too_many_in_flight" };
     }
 
-    if (this.getExportsUsed(input.userId, period) >= PLAN_EXPORTS_LIMIT) {
+    if (this.getExportsUsed(input.userId, period) >= PLAN_LIMITS.free.exportsLimit) {
       return { ok: false, reason: "quota_exceeded" };
     }
 
@@ -793,11 +795,26 @@ export class MemoryRepository implements AppRepository {
       return { ok: false, reason: "too_many_in_flight" };
     }
     if (
-      this.getSourceUploadsUsed(userId, period) >= PLAN_SOURCE_UPLOADS_LIMIT
+      this.getSourceUploadsUsed(userId, period) >= PLAN_LIMITS.free.sourceUploadsLimit
     ) {
       return { ok: false, reason: "quota_exceeded" };
     }
     return { ok: true };
+  }
+
+  async countActiveSourcesForDocument(documentId: string): Promise<number> {
+    return this.state.sourceLinks.filter((link) => link.documentId === documentId)
+      .map((link) =>
+        this.state.sources.find((source) => source.id === link.sourceId),
+      )
+      .filter(
+        (source): source is AppSource =>
+          source != null &&
+          !source.deletedAt &&
+          (source.status === "queued" ||
+            source.status === "processing" ||
+            source.status === "ready"),
+      ).length;
   }
 
   async getSourceByUserIdempotency(input: {
@@ -829,6 +846,23 @@ export class MemoryRepository implements AppRepository {
     return matches[0] ?? null;
   }
 
+  async findSourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null> {
+    const matches = this.state.sources.filter(
+      (s) =>
+        s.workspaceId === input.workspaceId &&
+        s.checksum === input.checksum &&
+        !s.deletedAt &&
+        (s.status === "queued" ||
+          s.status === "processing" ||
+          s.status === "ready"),
+    );
+    matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return matches[0] ?? null;
+  }
+
   async insertQueuedSourceWithLink(input: {
     id: string;
     workspaceId: string;
@@ -844,7 +878,15 @@ export class MemoryRepository implements AppRepository {
     idempotencyKey: string | null;
   }): Promise<
     | { ok: true; source: AppSource }
-    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "idempotency_replay"
+          | "quota_exceeded"
+          | "too_many_in_flight"
+          | "document_limit_exceeded";
+        source?: AppSource;
+      }
   > {
     if (input.idempotencyKey) {
       const replay = await this.getSourceByUserIdempotency({
@@ -1031,6 +1073,7 @@ export class MemoryRepository implements AppRepository {
   async retryFailedSource(input: {
     userId: string;
     sourceId: string;
+    forceOcr?: boolean;
   }): Promise<
     | { ok: true; source: AppSource }
     | {
@@ -1066,7 +1109,7 @@ export class MemoryRepository implements AppRepository {
 
     if (
       this.getSourceUploadsUsed(input.userId, period) >=
-      PLAN_SOURCE_UPLOADS_LIMIT
+      PLAN_LIMITS.free.sourceUploadsLimit
     ) {
       return { ok: false, reason: "quota_exceeded" };
     }
@@ -1169,13 +1212,13 @@ export function createMemoryAppContext(): AppContext {
         period: getCurrentBillingPeriod(),
         aiActionsUsed: 0,
         aiActionsReserved: 0,
-        aiActionsRemaining: PLAN_AI_ACTIONS_LIMIT,
-        exportsRemaining: PLAN_EXPORTS_LIMIT,
-        sourceUploadsRemaining: PLAN_SOURCE_UPLOADS_LIMIT,
+        aiActionsRemaining: PLAN_LIMITS.free.aiActionsLimit,
+        exportsRemaining: PLAN_LIMITS.free.exportsLimit,
+        sourceUploadsRemaining: PLAN_LIMITS.free.sourceUploadsLimit,
       };
     }
     const period = getCurrentBillingPeriod();
-    const limit = PLAN_AI_ACTIONS_LIMIT;
+    const limit = PLAN_LIMITS.free.aiActionsLimit;
 
     const counters = repository.state.monthlyUsageCounters.find(
       (c) => c.userId === user.id && c.period === period,
@@ -1190,11 +1233,11 @@ export function createMemoryAppContext(): AppContext {
     const remaining = Math.max(0, limit - (used + reserved));
 
     const exportsUsed = counters?.exportsUsed ?? 0;
-    const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
+    const exportsRemaining = Math.max(0, PLAN_LIMITS.free.exportsLimit - exportsUsed);
     const sourceUploadsUsed = counters?.sourceUploadsUsed ?? 0;
     const sourceUploadsRemaining = Math.max(
       0,
-      PLAN_SOURCE_UPLOADS_LIMIT - sourceUploadsUsed,
+      PLAN_LIMITS.free.sourceUploadsLimit - sourceUploadsUsed,
     );
 
     return {
@@ -1229,6 +1272,30 @@ export function createMemoryAppContext(): AppContext {
     },
     async getAuthenticatedClerkUserId(c) {
       return c.req.header("x-test-user-id") ?? null;
+    },
+    async getClerkUserById(clerkUserId) {
+      const user = repository.state.users.find(
+        (entry) => entry.clerkUserId === clerkUserId,
+      );
+
+      if (!user) {
+        return null;
+      }
+
+      return {
+        id: user.clerkUserId,
+        primaryEmailAddressId: null,
+        emailAddresses: [
+          {
+            id: null,
+            emailAddress: user.email,
+          },
+        ],
+        firstName: user.name,
+        lastName: null,
+        username: null,
+        imageUrl: user.avatarUrl,
+      } satisfies ClerkUserRecord;
     },
     async verifyWebhook(request) {
       if (request.headers.get("clerk-signature") === "invalid") {

@@ -2,6 +2,22 @@ import type { Context } from "hono";
 import { createErrorPayload, getRequestId } from "./errors.js";
 import type { ApiEnv } from "../hono-env.js";
 import { logApiErrorEvent } from "../lib/error-events.js";
+import { toProvisioningIdentityFromClerkUser } from "../lib/clerk-provisioning.js";
+
+async function tryBootstrapAppUser(c: Context<ApiEnv>, clerkUserId: string) {
+  const context = c.get("ctx");
+  const clerkUser = await context.getClerkUserById(clerkUserId);
+  if (!clerkUser) {
+    return null;
+  }
+
+  const identity = toProvisioningIdentityFromClerkUser(clerkUser);
+  if (!identity) {
+    return null;
+  }
+
+  return context.repository.upsertUserFromWebhook(identity);
+}
 
 export { createErrorPayload, getRequestId } from "./errors.js";
 
@@ -43,6 +59,14 @@ export async function requireAppUser(c: Context<ApiEnv>) {
   const user = await context.repository.getUserByClerkUserId(clerkUserId);
 
   if (!user) {
+    const bootstrap = await tryBootstrapAppUser(c, clerkUserId);
+
+    if (bootstrap) {
+      return {
+        bootstrap,
+      };
+    }
+
     logApiErrorEvent({
       domain: "auth",
       path: c.req.path,
@@ -88,6 +112,14 @@ export async function requireAppUser(c: Context<ApiEnv>) {
   const workspace = await context.repository.getWorkspaceForUser(user.id);
 
   if (!workspace) {
+    const bootstrap = await tryBootstrapAppUser(c, clerkUserId);
+
+    if (bootstrap) {
+      return {
+        bootstrap,
+      };
+    }
+
     logApiErrorEvent({
       domain: "auth",
       path: c.req.path,

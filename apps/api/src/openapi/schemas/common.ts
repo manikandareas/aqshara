@@ -18,7 +18,7 @@ export const AppUserSchema = z.object({
   email: z.string().email(),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
-  planCode: z.literal("free"),
+  planCode: z.enum(["free", "pro"]),
 });
 
 export const WorkspaceSchema = z.object({
@@ -37,6 +37,6 @@ export const UsageSchema = z.object({
 });
 
 export const PlanSummarySchema = z.object({
-  code: z.literal("free"),
-  label: z.literal("Free"),
+  code: z.enum(["free", "pro"]),
+  label: z.enum(["Free", "Pro"]),
 });

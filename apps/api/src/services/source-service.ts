@@ -92,6 +92,7 @@ export class SourceService {
     source: AppSource;
     documentId: string;
     idempotencyKey: string;
+    forceOcr?: boolean;
   }): Promise<
     | { type: "ok"; source: AppSource }
     | { type: "queue_unavailable"; message: string }
@@ -102,6 +103,7 @@ export class SourceService {
       userId: input.source.userId,
       workspaceId: input.source.workspaceId,
       idempotencyKey: input.idempotencyKey,
+      forceOcr: input.forceOcr ?? false,
     } satisfies ParseSourcePayload);
 
     try {
@@ -333,6 +335,58 @@ export class SourceService {
       };
     }
 
+    const activeDup = await this.repository.findSourceByWorkspaceChecksum({
+      workspaceId: input.workspaceId,
+      checksum,
+    });
+
+    if (activeDup && activeDup.id !== input.sourceId) {
+      const link = await this.repository.createDocumentSourceLink({
+        documentId: input.documentId,
+        sourceId: activeDup.id,
+      });
+      if (!link.ok && link.reason !== "duplicate_link") {
+        return {
+          type: "queue_unavailable",
+          message: "Failed to link document to source",
+        };
+      }
+
+      if (activeDup.status === "queued" && !activeDup.bullmqJobId) {
+        const idem = input.idempotencyKey ?? `register:${activeDup.id}`;
+        const queued = await this.enqueueParseJob({
+          source: activeDup,
+          documentId: input.documentId,
+          idempotencyKey: idem,
+        });
+        if (queued.type === "queue_unavailable") {
+          return queued;
+        }
+        await deleteSourceObject(input.storageKey).catch(() => undefined);
+        return {
+          type: "ok",
+          source: queued.source,
+          isReplay: true,
+          relinked: true,
+        };
+      }
+
+      await deleteSourceObject(input.storageKey).catch(() => undefined);
+      logLaunchEvent("source.register_relinked", {
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        documentId: input.documentId,
+        sourceId: activeDup.id,
+        abandonedSourceId: input.sourceId,
+      });
+      return {
+        type: "ok",
+        source: activeDup,
+        isReplay: false,
+        relinked: true,
+      };
+    }
+
     const readyDup = await this.repository.findReadySourceByWorkspaceChecksum({
       workspaceId: input.workspaceId,
       checksum,
@@ -385,9 +439,29 @@ export class SourceService {
       idempotencyKey: input.idempotencyKey,
     });
 
-    let source = inserted.source;
+    if (inserted.ok === false) {
+      if (
+        inserted.reason === "quota_exceeded" ||
+        inserted.reason === "too_many_in_flight"
+      ) {
+        return { type: inserted.reason };
+      }
+      if (inserted.reason === "document_limit_exceeded") {
+        return {
+          type: "limits_exceeded",
+          message: "Document already has the maximum number of active sources",
+        };
+      }
+    }
+
     if (inserted.ok === false && inserted.reason === "idempotency_replay") {
-      source = inserted.source;
+      const source = inserted.source;
+      if (!source) {
+        return {
+          type: "queue_unavailable",
+          message: "Failed to recover previous source registration",
+        };
+      }
       const link = await this.repository.createDocumentSourceLink({
         documentId: input.documentId,
         sourceId: source.id,
@@ -420,6 +494,14 @@ export class SourceService {
         source,
         isReplay: true,
         relinked: false,
+      };
+    }
+
+    const source = inserted.source;
+    if (!source) {
+      return {
+        type: "queue_unavailable",
+        message: "Failed to create queued source",
       };
     }
 
@@ -467,6 +549,7 @@ export class SourceService {
   async retry(input: {
     userId: string;
     sourceId: string;
+    forceOcr?: boolean;
   }): Promise<
     | { type: "ok"; source: AppSource }
     | {
@@ -482,6 +565,7 @@ export class SourceService {
     const retried = await this.repository.retryFailedSource({
       userId: input.userId,
       sourceId: input.sourceId,
+      forceOcr: input.forceOcr ?? false,
     });
 
     if (!retried.ok) {
@@ -505,6 +589,7 @@ export class SourceService {
       source,
       documentId: resolvedDocumentId,
       idempotencyKey,
+      forceOcr: input.forceOcr ?? false,
     });
 
     if (queued.type === "queue_unavailable") {

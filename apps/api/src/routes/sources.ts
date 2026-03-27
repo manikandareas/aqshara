@@ -203,6 +203,15 @@ const retrySourceRoute = createRoute({
   summary: "Retry a failed source parse",
   request: {
     params: sourceParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            forceOcr: z.boolean().optional(),
+          }),
+        },
+      },
+    },
   },
   responses: {
     200: {
@@ -599,9 +608,14 @@ export function registerSourceRoutes(app: OpenAPIHono<ApiEnv>): void {
       );
     }
 
+    const body = (await c.req.json().catch(() => ({}))) as {
+      forceOcr?: boolean;
+    };
+
     const result = await context.services.sources.retry({
       userId: auth.bootstrap.user.id,
       sourceId,
+      forceOcr: body.forceOcr ?? false,
     });
 
     if (result.type === "not_found") {

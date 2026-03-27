@@ -61,6 +61,33 @@ export class ExportService {
     ) => Promise<{ jobId: string }>,
   ) {}
 
+  async preflightDocxExport(input: {
+    userId: string;
+    workspaceId: string;
+    documentId: string;
+  }): Promise<
+    | { type: "ok"; warnings: PreflightWarning[] }
+    | { type: "document_not_found" }
+    | { type: "workspace_mismatch" }
+  > {
+    const document = await this.repository.getDocumentByIdUnscoped(
+      input.documentId,
+    );
+
+    if (!document) {
+      return { type: "document_not_found" };
+    }
+
+    if (document.workspaceId !== input.workspaceId) {
+      return { type: "workspace_mismatch" };
+    }
+
+    return {
+      type: "ok",
+      warnings: computeExportPreflight(document),
+    };
+  }
+
   private async enqueueDocxExport(input: {
     export: AppExport;
     userId: string;

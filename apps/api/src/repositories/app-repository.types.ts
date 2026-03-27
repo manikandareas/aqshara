@@ -4,7 +4,7 @@ import type {
   TemplateCode,
 } from "@aqshara/documents";
 
-export type PlanCode = "free";
+export type PlanCode = "free" | "pro";
 export type DocumentType = "general_paper" | "proposal" | "skripsi";
 export type DocumentStatus = "active" | "archived";
 
@@ -190,6 +190,7 @@ export type AppRepository = {
 
   countActiveDocuments(userId: string): Promise<number>;
   countArchivedDocuments(userId: string): Promise<number>;
+  countActiveSourcesForDocument(documentId: string): Promise<number>;
   reserveAiAction(input: {
     userId: string;
     documentId?: string;
@@ -198,7 +199,7 @@ export type AppRepository = {
     requestHash?: string;
   }): Promise<{
     allowed: boolean;
-    reason?: "idempotency_mismatch" | "quota_exceeded";
+    reason?: "idempotency_mismatch" | "quota_exceeded" | "duplicate_in_flight";
     eventId?: string;
     isReplay?: boolean;
     metadataJson?: unknown;
@@ -301,6 +302,11 @@ export type AppRepository = {
     idempotencyKey: string;
   }): Promise<AppSource | null>;
 
+  findSourceByWorkspaceChecksum(input: {
+    workspaceId: string;
+    checksum: string;
+  }): Promise<AppSource | null>;
+
   findReadySourceByWorkspaceChecksum(input: {
     workspaceId: string;
     checksum: string;
@@ -321,7 +327,15 @@ export type AppRepository = {
     idempotencyKey: string | null;
   }): Promise<
     | { ok: true; source: AppSource }
-    | { ok: false; reason: "idempotency_replay"; source: AppSource }
+    | {
+        ok: false;
+        reason:
+          | "idempotency_replay"
+          | "quota_exceeded"
+          | "too_many_in_flight"
+          | "document_limit_exceeded";
+        source?: AppSource;
+      }
   >;
 
   createDocumentSourceLink(input: {
@@ -361,6 +375,7 @@ export type AppRepository = {
   retryFailedSource(input: {
     userId: string;
     sourceId: string;
+    forceOcr?: boolean;
   }): Promise<
     | { ok: true; source: AppSource }
     | {

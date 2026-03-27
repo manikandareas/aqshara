@@ -89,6 +89,7 @@ export class AiService {
       "paraphrase",
       "expand",
       "simplify",
+      "section_draft",
     ];
     if (!validActions.includes(input.action)) {
       throw new Error(`Unsupported action for writing: ${input.action}`);

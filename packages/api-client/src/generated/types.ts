@@ -4,6 +4,73 @@
  */
 
 export interface paths {
+    "/v1/system/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readiness check */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ready */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                            service: string;
+                            timestamp: string;
+                            dependencies: {
+                                postgres: boolean;
+                                redis: boolean;
+                                storage: boolean;
+                                openai: boolean;
+                                mistral: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Not Ready */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                            service: string;
+                            timestamp: string;
+                            dependencies: {
+                                postgres: boolean;
+                                redis: boolean;
+                                storage: boolean;
+                                openai: boolean;
+                                mistral: boolean;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -129,7 +196,7 @@ export interface paths {
                                 name: string | null;
                                 avatarUrl: string | null;
                                 /** @enum {string} */
-                                planCode: "free";
+                                planCode: "free" | "pro";
                             };
                             workspace: {
                                 id: string;
@@ -138,9 +205,9 @@ export interface paths {
                             };
                             plan: {
                                 /** @enum {string} */
-                                code: "free";
+                                code: "free" | "pro";
                                 /** @enum {string} */
-                                label: "Free";
+                                label: "Free" | "Pro";
                             };
                             usage: {
                                 period: string;
@@ -1163,6 +1230,8 @@ export interface paths {
                     "application/json": {
                         topic: string;
                         idempotencyKey: string;
+                        /** @enum {string} */
+                        templateCode?: "blank" | "general_paper" | "proposal" | "skripsi";
                     };
                 };
             };
@@ -1283,7 +1352,6 @@ export interface paths {
                         };
                         /** Format: date-time */
                         baseUpdatedAt: string;
-                        templateCode?: string;
                     };
                 };
             };
@@ -1407,9 +1475,10 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify";
+                        action: "continue" | "rewrite" | "paraphrase" | "expand" | "simplify" | "section_draft";
                         targetBlockIds: string[];
                         idempotencyKey: string;
+                        sectionPrompt?: string;
                     };
                 };
             };
@@ -1806,6 +1875,90 @@ export interface paths {
                     };
                 };
                 /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/exports/docx/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preflight DOCX export warnings without creating a job */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Preflight warnings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            preflightWarnings: {
+                                /** @enum {string} */
+                                code: "empty_document_title" | "empty_heading" | "possible_placeholder";
+                                message: string;
+                                blockId?: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Document belongs to another workspace */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Document not found */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2321,6 +2474,15 @@ export interface paths {
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": unknown;
                     };
                 };
+                /** @description Redirect to presigned URL for download */
+                302: {
+                    headers: {
+                        /** @description Presigned URL */
+                        Location: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -2783,7 +2945,13 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        forceOcr?: boolean;
+                    };
+                };
+            };
             responses: {
                 /** @description Parse re-queued */
                 200: {

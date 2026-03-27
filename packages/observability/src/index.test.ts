@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { logErrorEvent } from "./index.js";
+import { logErrorEvent } from "./index.ts";
 
 describe("logErrorEvent", () => {
   it("emits a stable machine-readable error_event payload", () => {

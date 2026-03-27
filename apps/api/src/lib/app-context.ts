@@ -1,3 +1,4 @@
+import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@hono/clerk-auth";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { verifyWebhook } from "@clerk/backend/webhooks";
@@ -23,15 +24,12 @@ import { enqueueExportDocxJob } from "./export-queue.js";
 import { enqueueParseSourceJob } from "./source-parse-queue.js";
 import { createApiServices, type ApiServices } from "../services/index.js";
 import type { AppUsage } from "./api-types.js";
+import { PLAN_LIMITS } from "./plan-limits.js";
 import {
-  PLAN_AI_ACTIONS_LIMIT,
-  PLAN_EXPORTS_LIMIT,
-  PLAN_SOURCE_UPLOADS_LIMIT,
-} from "./plan-limits.js";
-import {
-  toProvisioningIdentity,
   type ClerkProvisioningUser,
+  type ClerkUserRecord,
   type ClerkUserEmailAddress,
+  toProvisioningIdentity,
 } from "./clerk-provisioning.js";
 
 export type {
@@ -85,6 +83,7 @@ export type AppContext = {
     };
   }) => Promise<string | null>;
   verifyWebhook: (request: Request) => Promise<WebhookEvent>;
+  getClerkUserById: (clerkUserId: string) => Promise<ClerkUserRecord | null>;
   repository: AppRepository;
   logger: Logger;
   getUsage: (user: AppUser) => Promise<AppUsage>;
@@ -187,10 +186,14 @@ export function createProductionAppContext(): AppContext {
   const repository = new PostgresAppRepository();
   const logger = createLogger("api");
   const aiService = createAiServiceForEnv(logger);
+  const clerkSecretKey = process.env.CLERK_SECRET_KEY?.trim();
+  const clerkClient = clerkSecretKey
+    ? createClerkClient({ secretKey: clerkSecretKey })
+    : null;
 
   const getUsage = async (user: AppUser) => {
     const period = getCurrentBillingPeriod();
-    const aiLimit = PLAN_AI_ACTIONS_LIMIT;
+    const planLimits = PLAN_LIMITS[user.planCode];
 
     const db = createDatabase();
     const counters = (
@@ -223,11 +226,11 @@ export function createProductionAppContext(): AppContext {
     )[0];
     const reserved = reservedRecord?.aiActionsReserved ?? 0;
 
-    const remaining = Math.max(0, aiLimit - (used + reserved));
-    const exportsRemaining = Math.max(0, PLAN_EXPORTS_LIMIT - exportsUsed);
+    const remaining = Math.max(0, planLimits.aiActionsLimit - (used + reserved));
+    const exportsRemaining = Math.max(0, planLimits.exportsLimit - exportsUsed);
     const sourceUploadsRemaining = Math.max(
       0,
-      PLAN_SOURCE_UPLOADS_LIMIT - sourceUploadsUsed,
+      planLimits.sourceUploadsLimit - sourceUploadsUsed,
     );
 
     return {
@@ -253,6 +256,29 @@ export function createProductionAppContext(): AppContext {
     getAuthenticatedClerkUserId,
     verifyWebhook(request) {
       return verifyWebhook(request);
+    },
+    async getClerkUserById(clerkUserId: string) {
+      if (!clerkClient) {
+        return null;
+      }
+
+      try {
+        const user = await clerkClient.users.getUser(clerkUserId);
+        return {
+          id: user.id,
+          primaryEmailAddressId: user.primaryEmailAddressId ?? null,
+          emailAddresses: (user.emailAddresses ?? []).map((entry) => ({
+            id: entry.id ?? null,
+            emailAddress: entry.emailAddress ?? null,
+          })),
+          firstName: user.firstName ?? null,
+          lastName: user.lastName ?? null,
+          username: user.username ?? null,
+          imageUrl: user.imageUrl ?? null,
+        } satisfies ClerkUserRecord;
+      } catch {
+        return null;
+      }
     },
     repository,
     logger,

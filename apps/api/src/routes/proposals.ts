@@ -131,7 +131,7 @@ export function registerProposalRoutes(app: OpenAPIHono<ApiEnv>): void {
     if (applyResult.type === "stale_document_save") {
       return c.json(
         createErrorPayload(
-          "stale_ai_proposal",
+          "stale_document_save",
           "Stale document save",
           getRequestId(c),
         ),

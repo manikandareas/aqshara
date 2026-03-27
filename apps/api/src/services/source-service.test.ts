@@ -105,4 +105,80 @@ describe("SourceService", () => {
 
     assert.equal(result.type, "workspace_mismatch");
   });
+
+  it("relinks to an existing ready source with the same checksum", async () => {
+    const repository = new MemoryRepository();
+    const { user, workspace } = await repository.upsertUserFromWebhook({
+      clerkUserId: "user_source_service_3",
+      email: "src3@example.com",
+      name: "Source User 3",
+      avatarUrl: null,
+    });
+
+    const document = await repository.createDocument({
+      userId: user.id,
+      title: "Paper",
+      type: "general_paper",
+    });
+
+    const existingSourceId = randomUUID();
+    const checksum = sha256Hex(MINIMAL_PDF_BUFFER);
+    repository.state.sources.push({
+      id: existingSourceId,
+      workspaceId: workspace.id,
+      userId: user.id,
+      billingPeriod: "2026-03",
+      status: "ready",
+      storageKey: sourceOriginalKey(workspace.id, existingSourceId),
+      parsedTextStorageKey: null,
+      parsedTextSizeBytes: null,
+      mimeType: "application/pdf",
+      originalFileName: "existing.pdf",
+      fileSizeBytes: MINIMAL_PDF_BUFFER.length,
+      checksum,
+      pageCount: 1,
+      bullmqJobId: null,
+      retryCount: 0,
+      errorMessage: null,
+      errorCode: null,
+      processingStartedAt: null,
+      readyAt: new Date().toISOString(),
+      idempotencyKey: null,
+      deletedAt: null,
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    let enqueued = 0;
+    const service = new SourceService(repository, async () => {
+      enqueued += 1;
+      return { jobId: `job-${enqueued}` };
+    });
+
+    const sourceId = randomUUID();
+    const storageKey = sourceOriginalKey(workspace.id, sourceId);
+    const fullPath = join(getSourcesRootDir(), storageKey);
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, MINIMAL_PDF_BUFFER);
+
+    const result = await service.registerSource({
+      userId: user.id,
+      workspaceId: workspace.id,
+      documentId: document.id,
+      sourceId,
+      storageKey,
+      originalFileName: "paper.pdf",
+      fileSizeBytes: MINIMAL_PDF_BUFFER.length,
+      checksum,
+      mimeType: "application/pdf",
+      idempotencyKey: "src-reg-relink",
+    });
+
+    assert.equal(result.type, "ok");
+    if (result.type === "ok") {
+      assert.equal(result.relinked, true);
+      assert.equal(result.source.id, existingSourceId);
+    }
+    assert.equal(enqueued, 0);
+  });
 });

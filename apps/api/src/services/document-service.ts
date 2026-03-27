@@ -21,6 +21,13 @@ const TEMPLATE_CODES = [
   "skripsi",
 ] as const;
 
+export class InvalidTemplateCombinationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidTemplateCombinationError";
+  }
+}
+
 export class DocumentService {
   constructor(private readonly repository: AppRepository) {}
 
@@ -103,6 +110,15 @@ export class DocumentService {
     type: DocumentType;
     templateCode: (typeof TEMPLATE_CODES)[number];
   }): Promise<AppDocument> {
+    if (
+      input.templateCode !== "blank" &&
+      input.templateCode !== input.type
+    ) {
+      throw new InvalidTemplateCombinationError(
+        "Template code must match document type",
+      );
+    }
+
     const document = await this.repository.createDocument({
       userId: input.userId,
       title: input.title,
