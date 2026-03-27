@@ -1,5 +1,6 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { logLaunchEvent } from "@aqshara/observability";
 import { ErrorSchema } from "../openapi/schemas/common.js";
 import {
   DocumentSchema,
@@ -138,6 +139,13 @@ export function registerProposalRoutes(app: OpenAPIHono<ApiEnv>): void {
         409,
       );
     }
+    logLaunchEvent("ai.proposal_applied", {
+      userId: result.bootstrap.user.id,
+      documentId: applyResult.document.id,
+      proposalId: applyResult.proposal.id,
+      mode: body.mode,
+      actionType: applyResult.proposal.actionType,
+    });
     return c.json({
       document: applyResult.document,
       proposal: applyResult.proposal,
@@ -171,6 +179,12 @@ export function registerProposalRoutes(app: OpenAPIHono<ApiEnv>): void {
         404,
       );
     }
+    logLaunchEvent("ai.proposal_dismissed", {
+      userId: result.bootstrap.user.id,
+      documentId: dismissResult.proposal.documentId,
+      proposalId: dismissResult.proposal.id,
+      status: dismissResult.proposal.status,
+    });
     return c.json({ proposal: dismissResult.proposal });
   }) as never);
 }

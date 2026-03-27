@@ -1,6 +1,7 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import type { OutlineDraft } from "@aqshara/documents";
+import { logLaunchEvent } from "@aqshara/observability";
 import { ErrorSchema } from "../openapi/schemas/common.js";
 import {
   DocumentAstSchema,
@@ -596,6 +597,11 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
       title: body.title,
       type: body.type,
     });
+    logLaunchEvent("document.created", {
+      userId: result.bootstrap.user.id,
+      documentId: document.id,
+      documentType: document.type,
+    });
     return c.json({ document }, 201);
   }) as never);
 
@@ -750,6 +756,18 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
           templateCode: body.templateCode,
         },
       );
+      logLaunchEvent("template.selected", {
+        userId: result.bootstrap.user.id,
+        documentId: updatedDocument.id,
+        documentType: updatedDocument.type,
+        templateCode: body.templateCode,
+      });
+      logLaunchEvent("document.bootstrap_completed", {
+        userId: result.bootstrap.user.id,
+        documentId: updatedDocument.id,
+        documentType: updatedDocument.type,
+        templateCode: body.templateCode,
+      });
       return c.json({ document: updatedDocument }, 201);
     } catch (error) {
       if (error instanceof InvalidTemplateCombinationError) {
@@ -808,11 +826,25 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
       );
     }
     if (outlineResult.type === "replay") {
+      logLaunchEvent("outline.generated", {
+        userId: result.bootstrap.user.id,
+        documentId,
+        topic: body.topic,
+        templateCode: body.templateCode ?? null,
+        isReplay: true,
+      });
       return c.json({
         outline: outlineResult.outline as OutlineDraft,
         usage: outlineResult.usage,
       });
     }
+    logLaunchEvent("outline.generated", {
+      userId: result.bootstrap.user.id,
+      documentId,
+      topic: body.topic,
+      templateCode: body.templateCode ?? null,
+      isReplay: false,
+    });
     return c.json({
       outline: outlineResult.outline,
       usage: outlineResult.usage,
@@ -914,6 +946,14 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
         409,
       );
     }
+    logLaunchEvent("ai.proposal_requested", {
+      userId: result.bootstrap.user.id,
+      documentId,
+      proposalId: genResult.proposal.id,
+      action: body.action,
+      allowedApplyModes: genResult.allowedApplyModes,
+      isReplay: genResult.type === "replay",
+    });
     return c.json({
       proposal: genResult.proposal,
       allowedApplyModes: genResult.allowedApplyModes,

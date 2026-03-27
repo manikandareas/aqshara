@@ -69,6 +69,29 @@ async function captureErrorEvents<T>(
   }
 }
 
+async function captureLaunchEvents<T>(
+  action: () => T | Promise<T>,
+): Promise<{ result: T; events: Array<Record<string, unknown>> }> {
+  const lines: string[] = [];
+  const originalInfo = console.info;
+
+  console.info = ((value?: unknown, ...rest: unknown[]) => {
+    lines.push([value, ...rest].map((entry) => String(entry)).join(" "));
+  }) as typeof console.info;
+
+  try {
+    const result = await action();
+    const events = lines
+      .filter((line) => line.trim().startsWith("{"))
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((payload) => payload.type === "launch_event");
+
+    return { result, events };
+  } finally {
+    console.info = originalInfo;
+  }
+}
+
 function createClerkUserEvent(
   type: "user.created" | "user.updated",
   overrides: Partial<{
@@ -757,6 +780,181 @@ describe("document workflow", () => {
     assert.equal(listAfterArchiveResponse.status, 200);
     assert.equal(listAfterArchivePayload.documents.length, 5);
     assert.equal(listAfterArchivePayload.documents[0].title, "Doc 5");
+  });
+});
+
+describe("launch funnel analytics", () => {
+  it("emits launch events for create, template bootstrap, outline, and AI actions", async () => {
+    const app = createApp(createMemoryAppContext());
+    const clerkId = "user_launch_events";
+
+    await app.request("http://localhost/webhooks/clerk", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(createClerkUserEvent("user.created", { id: clerkId })),
+    });
+
+    const meResponse = await app.request("http://localhost/v1/me", {
+      headers: {
+        "x-test-user-id": clerkId,
+      },
+    });
+    const mePayload = await meResponse.json();
+
+    const authHeaders = {
+      "content-type": "application/json",
+      "x-test-user-id": clerkId,
+    };
+
+    const { result: createResponse, events: createEvents } =
+      await captureLaunchEvents(() =>
+        app.request("http://localhost/v1/documents", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({
+            title: "Launch Analytics Doc",
+            type: "general_paper",
+          }),
+        }),
+      );
+    const createdPayload = await createResponse.json();
+
+    assert.equal(createResponse.status, 201);
+    assert.equal(createdPayload.document.title, "Launch Analytics Doc");
+    assert.equal(createEvents.at(0)?.event, "document.created");
+    assert.equal(createEvents.at(0)?.documentId, createdPayload.document.id);
+    assert.equal(createEvents.at(0)?.userId, mePayload.user.id);
+
+    const { result: bootstrapResponse, events: bootstrapEvents } =
+      await captureLaunchEvents(() =>
+        app.request("http://localhost/v1/documents/bootstrap", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({
+            title: "Bootstrapped Doc",
+            type: "general_paper",
+            templateCode: "general_paper",
+          }),
+        }),
+      );
+    const bootstrapPayload = await bootstrapResponse.json();
+
+    assert.equal(bootstrapResponse.status, 201);
+    assert.deepEqual(
+      bootstrapEvents.map((event) => event.event),
+      ["template.selected", "document.bootstrap_completed"],
+    );
+    assert.equal(bootstrapEvents.at(0)?.documentId, bootstrapPayload.document.id);
+    assert.equal(bootstrapEvents.at(0)?.templateCode, "general_paper");
+
+    const { result: outlineResponse, events: outlineEvents } =
+      await captureLaunchEvents(() =>
+        app.request(
+          `http://localhost/v1/documents/${createdPayload.document.id}/outline/generate`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+              topic: "Meningkatkan produktivitas penulisan akademik",
+              idempotencyKey: "idem-outline-launch",
+            }),
+          },
+        ),
+      );
+    const outlinePayload = await outlineResponse.json();
+
+    assert.equal(outlineResponse.status, 200);
+    assert.equal(outlineEvents.at(0)?.event, "outline.generated");
+    assert.equal(outlineEvents.at(0)?.documentId, createdPayload.document.id);
+    assert.equal(outlineEvents.at(0)?.isReplay, false);
+    assert.ok(outlinePayload.outline.title.length > 0);
+
+    const saveResponse = await app.request(
+      `http://localhost/v1/documents/${createdPayload.document.id}/content`,
+      {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({
+          contentJson: [
+            {
+              type: "paragraph",
+              id: "launch-block-1",
+              children: [{ text: "Kerangka awal tulisan." }],
+            },
+          ],
+          baseUpdatedAt: createdPayload.document.updatedAt,
+        }),
+      },
+    );
+    const savedPayload = await saveResponse.json();
+    assert.equal(saveResponse.status, 200);
+
+    const { result: proposalResponse, events: proposalEvents } =
+      await captureLaunchEvents(() =>
+        app.request(
+          `http://localhost/v1/documents/${createdPayload.document.id}/ai/proposals`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+              action: "rewrite",
+              targetBlockIds: ["launch-block-1"],
+              idempotencyKey: "idem-proposal-launch",
+            }),
+          },
+        ),
+      );
+    const proposalPayload = await proposalResponse.json();
+
+    assert.equal(proposalResponse.status, 200);
+    assert.equal(proposalEvents.at(0)?.event, "ai.proposal_requested");
+    assert.equal(
+      proposalEvents.at(0)?.proposalId,
+      proposalPayload.proposal.id,
+    );
+
+    const { result: applyResponse, events: applyEvents } =
+      await captureLaunchEvents(() =>
+        app.request(
+          `http://localhost/v1/ai/proposals/${proposalPayload.proposal.id}/apply`,
+          {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+              baseUpdatedAt: savedPayload.document.updatedAt,
+              mode: "replace",
+            }),
+          },
+        ),
+      );
+    const applyPayload = await applyResponse.json();
+
+    assert.equal(applyResponse.status, 200);
+    assert.equal(applyEvents.at(0)?.event, "ai.proposal_applied");
+    assert.equal(applyEvents.at(0)?.mode, "replace");
+    assert.equal(applyPayload.proposal.status, "applied");
+
+    const { result: dismissResponse, events: dismissEvents } =
+      await captureLaunchEvents(() =>
+        app.request(
+          `http://localhost/v1/ai/proposals/${proposalPayload.proposal.id}/dismiss`,
+          {
+            method: "POST",
+            headers: authHeaders,
+          },
+        ),
+      );
+    const dismissPayload = await dismissResponse.json();
+
+    assert.equal(dismissResponse.status, 200);
+    assert.equal(dismissEvents.at(0)?.event, "ai.proposal_dismissed");
+    assert.equal(
+      dismissEvents.at(0)?.proposalId,
+      proposalPayload.proposal.id,
+    );
+    assert.equal(dismissPayload.proposal.id, proposalPayload.proposal.id);
   });
 });
 
