@@ -7,6 +7,7 @@ import {
   DocumentAstSchema,
   DocumentSchema,
   documentParamsSchema,
+  DocumentVersionSchema,
   OutlineDraftSchema,
   ProposalSchema,
 } from "../openapi/schemas/documents.js";
@@ -548,6 +549,36 @@ const generateProposalRoute = createRoute({
   },
 });
 
+const listDocumentVersionsRoute = createRoute({
+  method: "get",
+  path: "/v1/documents/{documentId}/versions",
+  tags: ["documents"],
+  summary: "List document version snapshots",
+  request: {
+    params: documentParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Document versions",
+      content: {
+        "application/json": {
+          schema: z.object({
+            versions: z.array(DocumentVersionSchema),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+  },
+});
+
 export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
   app.openapi(listDocumentsRoute, (async (c: Context<ApiEnv>) => {
     const context = c.get("ctx");
@@ -620,6 +651,15 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
         404,
       );
     }
+
+    // Fire-and-forget lastOpenedAt update
+    context.services.documents
+      .touchDocumentLastOpened(
+        result.bootstrap.user.id,
+        document.id,
+      )
+      .catch(() => undefined);
+
     return c.json({ document });
   }) as never);
 
@@ -958,5 +998,29 @@ export function registerDocumentRoutes(app: OpenAPIHono<ApiEnv>): void {
       proposal: genResult.proposal,
       allowedApplyModes: genResult.allowedApplyModes,
     });
+  }) as never);
+
+  app.openapi(listDocumentVersionsRoute, (async (c: Context<ApiEnv>) => {
+    const context = c.get("ctx");
+    const result = await requireAppUser(c);
+    if (result.error) return result.error;
+    const documentId = getDocumentId(c);
+
+    const document = await context.services.documents.getDocument(
+      result.bootstrap.user.id,
+      documentId,
+    );
+    if (!document) {
+      return c.json(
+        createErrorPayload("not_found", "Document not found", getRequestId(c)),
+        404,
+      );
+    }
+
+    const versions = await context.services.documents.listVersions(
+      result.bootstrap.user.id,
+      documentId,
+    );
+    return c.json({ versions });
   }) as never);
 }

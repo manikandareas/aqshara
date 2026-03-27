@@ -39,6 +39,7 @@ export type AppDocument = {
   contentJson: DocumentValue;
   plainText: string | null;
   archivedAt: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -59,7 +60,7 @@ export type AppDocumentChangeProposal = {
   userId: string;
   proposalJson: DocumentChangeProposal;
   actionType: "replace" | "insert_below";
-  status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+  status: "pending" | "applied" | "dismissed" | "invalidated";
   baseUpdatedAt: string;
   targetBlockIds: string[];
   appliedAt: string | null;
@@ -74,6 +75,22 @@ export type DocumentPatch = {
   type?: DocumentType;
 };
 
+export type DocumentVersionTrigger =
+  | "initial_template"
+  | "outline_apply"
+  | "ai_proposal_apply";
+
+export type AppDocumentVersion = {
+  id: string;
+  documentId: string;
+  userId: string;
+  contentJson: DocumentValue;
+  plainText: string | null;
+  trigger: DocumentVersionTrigger;
+  snapshotLabel: string | null;
+  createdAt: string;
+};
+
 export class StaleDocumentSaveError extends Error {
   constructor() {
     super("Stale document save");
@@ -84,7 +101,8 @@ export class StaleDocumentSaveError extends Error {
 export type PreflightWarningCode =
   | "empty_document_title"
   | "empty_heading"
-  | "possible_placeholder";
+  | "possible_placeholder"
+  | "source_not_ready";
 
 export type PreflightWarning = {
   code: PreflightWarningCode;
@@ -183,10 +201,28 @@ export type AppRepository = {
     userId: string;
     documentId: string;
   }): Promise<AppDocument | null>;
+  touchDocumentLastOpened(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<void>;
   deleteDocument(input: {
     userId: string;
     documentId: string;
   }): Promise<boolean>;
+
+  createDocumentVersion(input: {
+    documentId: string;
+    userId: string;
+    contentJson: DocumentValue;
+    plainText: string | null;
+    trigger: DocumentVersionTrigger;
+    snapshotLabel?: string;
+  }): Promise<AppDocumentVersion>;
+
+  listDocumentVersions(input: {
+    documentId: string;
+    userId: string;
+  }): Promise<AppDocumentVersion[]>;
 
   countActiveDocuments(userId: string): Promise<number>;
   countArchivedDocuments(userId: string): Promise<number>;
@@ -223,7 +259,7 @@ export type AppRepository = {
   updateDocumentChangeProposalStatus(input: {
     id: string;
     userId: string;
-    status: "applied" | "dismissed" | "previewed" | "invalidated";
+    status: "applied" | "dismissed" | "invalidated";
   }): Promise<AppDocumentChangeProposal | null>;
   createTemplateDocument(input: {
     userId: string;
@@ -323,7 +359,7 @@ export type AppRepository = {
     originalFileName: string;
     fileSizeBytes: number;
     checksum: string;
-    pageCount: number;
+    pageCount: number | null;
     idempotencyKey: string | null;
   }): Promise<
     | { ok: true; source: AppSource }
@@ -350,6 +386,10 @@ export type AppRepository = {
 
   listSourcesForDocument(input: {
     userId: string;
+    documentId: string;
+  }): Promise<AppSource[]>;
+
+  listSourcesForDocumentUnscoped(input: {
     documentId: string;
   }): Promise<AppSource[]>;
 

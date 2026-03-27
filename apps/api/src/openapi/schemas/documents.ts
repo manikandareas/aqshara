@@ -37,6 +37,7 @@ export const DocumentSchema = z.object({
   contentJson: DocumentAstSchema,
   plainText: z.string().nullable(),
   archivedAt: z.string().nullable(),
+  lastOpenedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -78,7 +79,6 @@ export const ProposalSchema = z.object({
     "applied",
     "dismissed",
     "invalidated",
-    "previewed",
   ]),
   baseUpdatedAt: z.string(),
   targetBlockIds: z.array(z.string()),
@@ -87,4 +87,15 @@ export const ProposalSchema = z.object({
   invalidatedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+export const DocumentVersionSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  userId: z.string(),
+  contentJson: DocumentAstSchema,
+  plainText: z.string().nullable(),
+  trigger: z.enum(["initial_template", "outline_apply", "ai_proposal_apply"]),
+  snapshotLabel: z.string().nullable(),
+  createdAt: z.string(),
 });

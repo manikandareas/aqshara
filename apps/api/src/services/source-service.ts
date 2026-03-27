@@ -1,13 +1,12 @@
 import { parseSourcePayloadSchema, type ParseSourcePayload } from "@aqshara/queue";
 import {
   deleteSourceObject,
-  getSourceObjectBuffer,
   headSourceObject,
   isR2ObjectStorageConfigured,
   presignPutSourceObject,
   sourceOriginalKey,
 } from "@aqshara/storage";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { logLaunchEvent } from "@aqshara/observability";
 import type {
   AppRepository,
@@ -17,22 +16,6 @@ import { getCurrentBillingPeriod } from "../repositories/billing-period.js";
 
 const PDF_MIME = "application/pdf";
 const MAX_SOURCE_FILE_BYTES = 25 * 1024 * 1024;
-const MAX_SOURCE_PAGES = 300;
-
-async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(pdfBuffer),
-    useSystemFonts: true,
-    verbosity: 0,
-  });
-  const pdf = await loadingTask.promise;
-  return pdf.numPages;
-}
-
-function computeSha256Hex(buffer: Buffer): string {
-  return createHash("sha256").update(buffer).digest("hex");
-}
 
 export class SourceService {
   constructor(
@@ -153,7 +136,6 @@ export class SourceService {
           | "limits_exceeded"
           | "quota_exceeded"
           | "too_many_in_flight"
-          | "storage_unavailable"
           | "queue_unavailable"
           | "idempotency_mismatch";
         message?: string;
@@ -294,46 +276,8 @@ export class SourceService {
       };
     }
 
-    let pdfBuffer: Buffer;
-    try {
-      pdfBuffer = await getSourceObjectBuffer(input.storageKey);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to read uploaded object from storage";
-      return {
-        type: "storage_unavailable",
-        message,
-      };
-    }
-
-    const checksum = computeSha256Hex(pdfBuffer);
-    if (checksum.toLowerCase() !== input.checksum.toLowerCase()) {
-      return {
-        type: "object_invalid",
-        message: "Uploaded checksum does not match declared checksum",
-      };
-    }
-
-    let pageCount: number;
-    try {
-      pageCount = await getPdfPageCount(pdfBuffer);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Uploaded file is not a valid PDF";
-      return {
-        type: "invalid_pdf",
-        message,
-      };
-    }
-
-    if (pageCount > MAX_SOURCE_PAGES) {
-      return {
-        type: "limits_exceeded",
-        message: `PDF exceeds ${MAX_SOURCE_PAGES} pages`,
-      };
-    }
+    // Use client-provided checksum for dedup lookups; the worker validates it against the actual file.
+    const checksum = input.checksum;
 
     const activeDup = await this.repository.findSourceByWorkspaceChecksum({
       workspaceId: input.workspaceId,
@@ -435,7 +379,7 @@ export class SourceService {
       originalFileName: input.originalFileName,
       fileSizeBytes: input.fileSizeBytes,
       checksum,
-      pageCount,
+      pageCount: null,
       idempotencyKey: input.idempotencyKey,
     });
 

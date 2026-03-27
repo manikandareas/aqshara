@@ -12,6 +12,7 @@ import type {
   AppBootstrap,
   AppDocument,
   AppDocumentChangeProposal,
+  AppDocumentVersion,
   AppExport,
   AppRepository,
   AppSource,
@@ -20,6 +21,7 @@ import type {
   DocumentListOptions,
   DocumentPatch,
   DocumentType,
+  DocumentVersionTrigger,
   PreflightWarning,
   Workspace,
 } from "../repositories/app-repository.types.js";
@@ -82,6 +84,7 @@ type MemoryState = {
   exports: AppExport[];
   sources: AppSource[];
   sourceLinks: { documentId: string; sourceId: string }[];
+  documentVersions: AppDocumentVersion[];
 };
 
 export class MemoryRepository implements AppRepository {
@@ -96,6 +99,7 @@ export class MemoryRepository implements AppRepository {
     exports: [],
     sources: [],
     sourceLinks: [],
+    documentVersions: [],
   };
 
   private countInFlightExports(userId: string, period: string): number {
@@ -232,7 +236,11 @@ export class MemoryRepository implements AppRepository {
     return this.state.documents
       .filter((entry) => entry.workspaceId === workspace.id)
       .filter((entry) => !entry.archivedAt)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .sort((left, right) => {
+        const leftKey = left.lastOpenedAt ?? left.updatedAt;
+        const rightKey = right.lastOpenedAt ?? right.updatedAt;
+        return rightKey.localeCompare(leftKey);
+      })
       .slice(0, options.limit);
   }
 
@@ -260,6 +268,7 @@ export class MemoryRepository implements AppRepository {
       ],
       plainText: "",
       archivedAt: null,
+      lastOpenedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -348,6 +357,16 @@ export class MemoryRepository implements AppRepository {
     document.archivedAt = new Date().toISOString();
     document.updatedAt = document.archivedAt;
     return document;
+  }
+
+  async touchDocumentLastOpened(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<void> {
+    const doc = await this.getDocumentById(input);
+    if (doc) {
+      doc.lastOpenedAt = new Date().toISOString();
+    }
   }
 
   async countActiveDocuments(userId: string): Promise<number> {
@@ -555,7 +574,7 @@ export class MemoryRepository implements AppRepository {
   async updateDocumentChangeProposalStatus(input: {
     id: string;
     userId: string;
-    status: "applied" | "dismissed" | "previewed" | "invalidated";
+    status: "applied" | "dismissed" | "invalidated";
   }): Promise<AppDocumentChangeProposal | null> {
     const proposal = this.state.documentChangeProposals.find(
       (p) => p.id === input.id && p.userId === input.userId,
@@ -597,6 +616,7 @@ export class MemoryRepository implements AppRepository {
       contentJson,
       plainText: toPlainText(contentJson),
       archivedAt: null,
+      lastOpenedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -1006,6 +1026,19 @@ export class MemoryRepository implements AppRepository {
     return rows;
   }
 
+  async listSourcesForDocumentUnscoped(input: {
+    documentId: string;
+  }): Promise<AppSource[]> {
+    const ids = this.state.sourceLinks
+      .filter((l) => l.documentId === input.documentId)
+      .map((l) => l.sourceId);
+    const rows = this.state.sources.filter(
+      (s) => ids.includes(s.id) && !s.deletedAt,
+    );
+    rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return rows;
+  }
+
   async getDocumentIdForSource(input: {
     userId: string;
     sourceId: string;
@@ -1173,7 +1206,7 @@ export class MemoryRepository implements AppRepository {
     for (const p of this.state.documentChangeProposals) {
       if (
         p.documentId === input.documentId &&
-        (p.status === "pending" || p.status === "previewed")
+        (p.status === "pending")
       ) {
         if (new Date(p.baseUpdatedAt).getTime() < baseTime) {
           p.status = "invalidated";
@@ -1182,6 +1215,43 @@ export class MemoryRepository implements AppRepository {
         }
       }
     }
+  }
+
+  async createDocumentVersion(input: {
+    documentId: string;
+    userId: string;
+    contentJson: DocumentValue;
+    plainText: string | null;
+    trigger: DocumentVersionTrigger;
+    snapshotLabel?: string;
+  }): Promise<AppDocumentVersion> {
+    const now = new Date().toISOString();
+    const version: AppDocumentVersion = {
+      id: randomUUID(),
+      documentId: input.documentId,
+      userId: input.userId,
+      contentJson: input.contentJson,
+      plainText: input.plainText,
+      trigger: input.trigger,
+      snapshotLabel: input.snapshotLabel ?? null,
+      createdAt: now,
+    };
+    this.state.documentVersions.push(version);
+    return version;
+  }
+
+  async listDocumentVersions(input: {
+    documentId: string;
+    userId: string;
+  }): Promise<AppDocumentVersion[]> {
+    const doc = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+    if (!doc) return [];
+    return this.state.documentVersions
+      .filter((v) => v.documentId === input.documentId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async deleteDocument(input: {

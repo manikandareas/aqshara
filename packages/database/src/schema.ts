@@ -46,6 +46,7 @@ export const documents = pgTable("documents", {
   contentJson: jsonb("content_json").notNull(),
   plainText: text("plain_text"),
   archivedAt: timestamp("archived_at"),
+  lastOpenedAt: timestamp("last_opened_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -213,6 +214,25 @@ export const documentSourceLinks = pgTable(
       table.sourceId,
     ),
     documentIdIdx: index("document_source_links_document_id_idx").on(
+      table.documentId,
+    ),
+  }),
+);
+
+export const documentVersions = pgTable(
+  "document_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    documentId: uuid("document_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    contentJson: jsonb("content_json").notNull(),
+    plainText: text("plain_text"),
+    trigger: varchar("trigger", { length: 32 }).notNull(),
+    snapshotLabel: varchar("snapshot_label", { length: 255 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    documentIdIdx: index("document_versions_document_id_idx").on(
       table.documentId,
     ),
   }),

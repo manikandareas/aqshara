@@ -492,24 +492,6 @@ export function registerSourceRoutes(app: OpenAPIHono<ApiEnv>): void {
       );
     }
 
-    if (result.type === "storage_unavailable") {
-      logApiErrorEvent({
-        path: c.req.path,
-        requestId: getRequestId(c),
-        code: "storage_unavailable",
-        failureClass: "system",
-        message: result.message,
-      });
-      return c.json(
-        createErrorPayload(
-          "service_unavailable",
-          result.message ?? "Storage unavailable",
-          getRequestId(c),
-        ),
-        503,
-      );
-    }
-
     if (result.type === "ok") {
       return c.json(
         {

@@ -4,6 +4,7 @@ import type {
   AppDocument,
   AppExport,
   AppRepository,
+  AppSource,
   PreflightWarning,
 } from "../repositories/app-repository.types.js";
 
@@ -17,7 +18,10 @@ function blockPlainText(block: DocumentValue[number]): string {
   return block.children.map((c) => c.text).join("");
 }
 
-export function computeExportPreflight(document: AppDocument): PreflightWarning[] {
+export function computeExportPreflight(
+  document: AppDocument,
+  sources?: AppSource[],
+): PreflightWarning[] {
   const warnings: PreflightWarning[] = [];
 
   if (!document.title.trim()) {
@@ -46,6 +50,16 @@ export function computeExportPreflight(document: AppDocument): PreflightWarning[
         code: "possible_placeholder",
         message: "Possible unfinished placeholder text detected",
         blockId: id,
+      });
+    }
+  }
+
+  if (sources) {
+    const notReady = sources.filter((s) => s.status !== "ready");
+    for (const source of notReady) {
+      warnings.push({
+        code: "source_not_ready",
+        message: `Source '${source.originalFileName ?? source.id}' is still ${source.status} and may not be included`,
       });
     }
   }
@@ -82,9 +96,13 @@ export class ExportService {
       return { type: "workspace_mismatch" };
     }
 
+    const sources = await this.repository.listSourcesForDocumentUnscoped({
+      documentId: input.documentId,
+    });
+
     return {
       type: "ok",
-      warnings: computeExportPreflight(document),
+      warnings: computeExportPreflight(document, sources),
     };
   }
 
@@ -162,7 +180,11 @@ export class ExportService {
       return { type: "workspace_mismatch" };
     }
 
-    const preflightWarnings = computeExportPreflight(document);
+    const sources = await this.repository.listSourcesForDocumentUnscoped({
+      documentId: input.documentId,
+    });
+
+    const preflightWarnings = computeExportPreflight(document, sources);
 
     const created = await this.repository.requestDocxExport({
       userId: input.userId,

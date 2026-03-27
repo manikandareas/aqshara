@@ -3,6 +3,7 @@ import {
   createDatabase,
   documentSourceLinks,
   documents,
+  sourcesTable,
 } from "@aqshara/database";
 import { and, eq } from "drizzle-orm";
 import {
@@ -17,6 +18,7 @@ import {
   putSourceObject,
   sourceParsedTextKey,
 } from "@aqshara/storage";
+import { createHash } from "node:crypto";
 import { UnrecoverableError } from "bullmq";
 import { extractPdfPageTexts, pageIndicesNeedingOcr } from "../lib/pdf-text-extractor.js";
 import { runMistralOcrOnPdfKey } from "../lib/mistral-ocr.js";
@@ -420,6 +422,26 @@ export async function processSourceParseJob(
         maxAttempts: attempt.maxAttempts,
       });
       throw new Error("unreachable");
+    }
+
+    // Validate checksum against the declared checksum stored in the sources row
+    const sourceRow = row as Record<string, unknown>;
+    const declaredChecksum = sourceRow.checksum as string | undefined;
+    if (declaredChecksum) {
+      const actualChecksum = createHash("sha256").update(pdfBytes).digest("hex");
+      if (actualChecksum.toLowerCase() !== declaredChecksum.toLowerCase()) {
+        await failSourceParseJob({
+          db,
+          deps: resolvedDeps,
+          payload,
+          bullmqJobId,
+          errorCode: "checksum_mismatch",
+          errorMessage: "File checksum does not match the declared checksum",
+          retryable: false,
+          attemptsMade: attempt.attemptsMade,
+          maxAttempts: attempt.maxAttempts,
+        });
+      }
     }
 
     let extracted: Awaited<ReturnType<typeof extractPdfPageTexts>>;

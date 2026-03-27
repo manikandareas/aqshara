@@ -7,6 +7,7 @@ import type { OutlineDraft } from "@aqshara/documents";
 import type { DocumentValue } from "@aqshara/documents";
 import type {
   AppDocument,
+  AppDocumentVersion,
   AppRepository,
   DocumentPatch,
   DocumentStatus,
@@ -96,8 +97,19 @@ export class DocumentService {
     return this.repository.archiveDocument({ userId, documentId });
   }
 
+  touchDocumentLastOpened(userId: string, documentId: string): Promise<void> {
+    return this.repository.touchDocumentLastOpened({ userId, documentId });
+  }
+
   deleteDocument(userId: string, documentId: string): Promise<boolean> {
     return this.repository.deleteDocument({ userId, documentId });
+  }
+
+  listVersions(
+    userId: string,
+    documentId: string,
+  ): Promise<AppDocumentVersion[]> {
+    return this.repository.listDocumentVersions({ userId, documentId });
   }
 
   listTemplates(): string[] {
@@ -132,7 +144,20 @@ export class DocumentService {
       plainText: toPlainText(contentJson),
       baseUpdatedAt: document.updatedAt,
     });
-    return updatedDocument!;
+    if (!updatedDocument) {
+      throw new Error(
+        `Failed to apply template content to document ${document.id}. Concurrent modification detected.`,
+      );
+    }
+    await this.repository.createDocumentVersion({
+      documentId: document.id,
+      userId: input.userId,
+      contentJson,
+      plainText: toPlainText(contentJson),
+      trigger: "initial_template",
+      snapshotLabel: input.templateCode,
+    });
+    return updatedDocument;
   }
 
   async applyOutline(input: {
@@ -157,6 +182,13 @@ export class DocumentService {
       if (!document) {
         return { ok: false, error: "not_found" };
       }
+      await this.repository.createDocumentVersion({
+        documentId: input.documentId,
+        userId: input.userId,
+        contentJson,
+        plainText: toPlainText(contentJson),
+        trigger: "outline_apply",
+      });
       return { ok: true, document };
     } catch (error) {
       if (error instanceof StaleDocumentSaveError) {

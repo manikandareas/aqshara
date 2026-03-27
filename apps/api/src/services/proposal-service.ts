@@ -34,7 +34,7 @@ export class ProposalService {
       return { type: "not_found" };
     }
 
-    if (proposal.status !== "pending" && proposal.status !== "previewed") {
+    if (proposal.status !== "pending") {
       return {
         type: "stale_ai_proposal",
         message: "Proposal is in terminal state",
@@ -73,6 +73,15 @@ export class ProposalService {
     );
 
     try {
+      // Snapshot current content before applying the proposal
+      await this.repository.createDocumentVersion({
+        documentId: proposal.documentId,
+        userId: input.userId,
+        contentJson: documentRecord.contentJson,
+        plainText: documentRecord.plainText,
+        trigger: "ai_proposal_apply",
+      });
+
       const document = await this.repository.updateDocumentContent({
         userId: input.userId,
         documentId: proposal.documentId,

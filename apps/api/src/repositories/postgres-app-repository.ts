@@ -14,6 +14,7 @@ import {
   aiActionsReserved,
   documentChangeProposals,
   documentSourceLinks,
+  documentVersions,
   exportsTable,
   sourcesTable,
 } from "@aqshara/database";
@@ -27,6 +28,7 @@ import {
 import type {
   AppDocument,
   AppDocumentChangeProposal,
+  AppDocumentVersion,
   AppExport,
   AppRepository,
   AppSource,
@@ -35,6 +37,7 @@ import type {
   DocumentListOptions,
   DocumentPatch,
   DocumentType,
+  DocumentVersionTrigger,
   PlanCode,
   PreflightWarning,
   Workspace,
@@ -120,6 +123,7 @@ function toDocumentRecord(row: typeof documents.$inferSelect): AppDocument {
     contentJson: row.contentJson as DocumentValue,
     plainText: row.plainText,
     archivedAt: toIsoString(row.archivedAt),
+    lastOpenedAt: toIsoString(row.lastOpenedAt),
     createdAt: toIsoString(row.createdAt) ?? new Date().toISOString(),
     updatedAt: toIsoString(row.updatedAt) ?? new Date().toISOString(),
   };
@@ -342,7 +346,11 @@ export class PostgresAppRepository implements AppRepository {
           isNull(documents.archivedAt),
         ),
       )
-      .orderBy(desc(documents.updatedAt))
+      .orderBy(
+        desc(
+          sql`COALESCE(${documents.lastOpenedAt}, ${documents.updatedAt})`,
+        ),
+      )
       .limit(options.limit);
 
     return rows.map((row) => toDocumentRecord(row.document));
@@ -503,6 +511,19 @@ export class PostgresAppRepository implements AppRepository {
     }
 
     return toDocumentRecord(document);
+  }
+
+  async touchDocumentLastOpened(input: {
+    userId: string;
+    documentId: string;
+  }): Promise<void> {
+    const existing = await this.getDocumentById(input);
+    if (!existing) return;
+
+    await this.db
+      .update(documents)
+      .set({ lastOpenedAt: new Date() })
+      .where(eq(documents.id, input.documentId));
   }
 
   async countActiveDocuments(userId: string): Promise<number> {
@@ -841,7 +862,7 @@ export class PostgresAppRepository implements AppRepository {
   async updateDocumentChangeProposalStatus(input: {
     id: string;
     userId: string;
-    status: "applied" | "dismissed" | "previewed" | "invalidated";
+    status: "applied" | "dismissed" | "invalidated";
   }): Promise<AppDocumentChangeProposal | null> {
     const now = new Date();
     const updates = {
@@ -919,6 +940,9 @@ export class PostgresAppRepository implements AppRepository {
       plainText: document.plainText,
       archivedAt: document.archivedAt
         ? document.archivedAt.toISOString()
+        : null,
+      lastOpenedAt: document.lastOpenedAt
+        ? document.lastOpenedAt.toISOString()
         : null,
       createdAt: document.createdAt.toISOString(),
       updatedAt: document.updatedAt.toISOString(),
@@ -1451,7 +1475,7 @@ export class PostgresAppRepository implements AppRepository {
     originalFileName: string;
     fileSizeBytes: number;
     checksum: string;
-    pageCount: number;
+    pageCount: number | null;
     idempotencyKey: string | null;
   }): Promise<
     | { ok: true; source: AppSource }
@@ -1700,6 +1724,30 @@ export class PostgresAppRepository implements AppRepository {
       return [];
     }
 
+    const links = await this.db
+      .select()
+      .from(documentSourceLinks)
+      .where(eq(documentSourceLinks.documentId, input.documentId));
+
+    const ids = links.map((l) => l.sourceId);
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select()
+      .from(sourcesTable)
+      .where(
+        and(inArray(sourcesTable.id, ids), isNull(sourcesTable.deletedAt)),
+      )
+      .orderBy(desc(sourcesTable.createdAt));
+
+    return rows.map(toSourceRecord);
+  }
+
+  async listSourcesForDocumentUnscoped(input: {
+    documentId: string;
+  }): Promise<AppSource[]> {
     const links = await this.db
       .select()
       .from(documentSourceLinks)
@@ -2001,7 +2049,7 @@ export class PostgresAppRepository implements AppRepository {
 
     const toInvalidate = activeProposals.filter(
       (p) =>
-        (p.status === "pending" || p.status === "previewed") &&
+        (p.status === "pending") &&
         p.baseUpdatedAt.getTime() < baseDate.getTime(),
     );
 
@@ -2015,6 +2063,67 @@ export class PostgresAppRepository implements AppRepository {
         })
         .where(eq(documentChangeProposals.id, p.id));
     }
+  }
+
+  async createDocumentVersion(input: {
+    documentId: string;
+    userId: string;
+    contentJson: DocumentValue;
+    plainText: string | null;
+    trigger: DocumentVersionTrigger;
+    snapshotLabel?: string;
+  }): Promise<AppDocumentVersion> {
+    const [row] = await this.db
+      .insert(documentVersions)
+      .values({
+        documentId: input.documentId,
+        userId: input.userId,
+        contentJson: input.contentJson,
+        plainText: input.plainText,
+        trigger: input.trigger,
+        snapshotLabel: input.snapshotLabel ?? null,
+      })
+      .returning();
+
+    if (!row) throw new Error("Document version insert failed");
+    return {
+      id: row.id,
+      documentId: row.documentId,
+      userId: row.userId,
+      contentJson: row.contentJson as DocumentValue,
+      plainText: row.plainText,
+      trigger: row.trigger as DocumentVersionTrigger,
+      snapshotLabel: row.snapshotLabel,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  async listDocumentVersions(input: {
+    documentId: string;
+    userId: string;
+  }): Promise<AppDocumentVersion[]> {
+    const doc = await this.getDocumentById({
+      userId: input.userId,
+      documentId: input.documentId,
+    });
+    if (!doc) return [];
+
+    const rows = await this.db
+      .select()
+      .from(documentVersions)
+      .where(eq(documentVersions.documentId, input.documentId))
+      .orderBy(desc(documentVersions.createdAt));
+
+    return rows.map((row) => ({
+      id: row.id,
+      documentId: row.documentId,
+      userId: row.userId,
+      contentJson: row.contentJson as DocumentValue,
+      plainText: row.plainText,
+      trigger: row.trigger as DocumentVersionTrigger,
+      snapshotLabel: row.snapshotLabel,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
   async deleteDocument(input: {
