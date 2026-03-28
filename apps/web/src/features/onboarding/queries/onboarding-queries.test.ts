@@ -4,7 +4,7 @@ import {
   ApiRequestError,
   getApiErrorMessage,
   isApiRequestErrorStatus,
-} from "@/lib/onboarding-queries"
+} from "./onboarding-queries"
 
 describe("onboarding query helpers", () => {
   it("detects API status-specific errors", () => {

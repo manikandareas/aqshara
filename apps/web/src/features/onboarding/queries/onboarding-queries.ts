@@ -6,7 +6,7 @@ import type {
   BootstrapDocumentInput,
   SessionBootstrap,
   TemplateCode,
-} from "@/lib/onboarding"
+} from "../lib/onboarding"
 
 type ApiErrorPayload = {
   code?: string

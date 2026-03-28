@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   resolveOnboardingRedirect,
   type SessionBootstrap,
-} from "@/lib/onboarding"
+} from "./onboarding"
 
 const baseSession: SessionBootstrap = {
   user: {

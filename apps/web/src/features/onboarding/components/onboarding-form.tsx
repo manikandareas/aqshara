@@ -43,7 +43,7 @@ import {
   getTemplateLabel,
   type SessionBootstrap,
   type TemplateCode,
-} from "@/lib/onboarding"
+} from "../lib/onboarding"
 
 type OnboardingFormProps = {
   session: SessionBootstrap

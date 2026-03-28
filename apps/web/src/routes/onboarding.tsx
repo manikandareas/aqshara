@@ -2,10 +2,17 @@ import * as React from "react"
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 
-import { OnboardingForm } from "@/components/onboarding-form"
-import { ProvisioningPending } from "@/components/provisioning-pending"
-import { getApiErrorMessage, isApiRequestErrorStatus, appSessionQueryOptions, onboardingTemplatesQueryOptions, bootstrapFirstDocument, appSessionQueryKey } from "@/lib/onboarding-queries"
-import { resolveOnboardingRedirect } from "@/lib/onboarding"
+import { OnboardingForm } from "@/features/onboarding/components/onboarding-form"
+import { ProvisioningPending } from "@/features/onboarding/components/provisioning-pending"
+import { resolveOnboardingRedirect } from "@/features/onboarding/lib/onboarding"
+import {
+  appSessionQueryKey,
+  appSessionQueryOptions,
+  bootstrapFirstDocument,
+  getApiErrorMessage,
+  isApiRequestErrorStatus,
+  onboardingTemplatesQueryOptions,
+} from "@/features/onboarding/queries/onboarding-queries"
 
 export const Route = createFileRoute("/onboarding")({
   loader: async ({ context, location }) => {
