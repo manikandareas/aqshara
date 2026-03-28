@@ -1,19 +1,12 @@
-import type { paths } from "@aqshara/api-client"
+export type { SessionBootstrap } from "@/features/app-session/lib/app-session"
+export type {
+  BootstrapDocumentInput,
+  DocumentType,
+  TemplateCode,
+} from "@/features/documents/lib/documents"
 
-export type SessionBootstrap =
-  paths["/v1/me"]["get"]["responses"][200]["content"]["application/json"]
-
-type BootstrapRequestBody = NonNullable<
-  paths["/v1/documents/bootstrap"]["post"]["requestBody"]
->["content"]["application/json"]
-
-export type TemplateCode =
-  BootstrapRequestBody["templateCode"]
-
-export type DocumentType =
-  BootstrapRequestBody["type"]
-
-export type BootstrapDocumentInput = BootstrapRequestBody
+import type { SessionBootstrap } from "@/features/app-session/lib/app-session"
+import type { DocumentType, TemplateCode } from "@/features/documents/lib/documents"
 
 export function resolveOnboardingRedirect(
   pathname: string,

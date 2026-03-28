@@ -1,10 +1,11 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 
+import { appSessionQueryOptions } from "@/features/app-session/queries/app-session-queries"
 import { ProvisioningPending } from "@/features/onboarding/components/provisioning-pending"
 import { resolveOnboardingRedirect } from "@/features/onboarding/lib/onboarding"
-import { appSessionQueryOptions, isApiRequestErrorStatus } from "@/features/onboarding/queries/onboarding-queries"
 import { AppShell } from "@/features/workspace/components/app-shell"
+import { isApiRequestErrorStatus } from "@/lib/api-client"
 
 export const Route = createFileRoute("/app")({
   loader: async ({ context, location }) => {

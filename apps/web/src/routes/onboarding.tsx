@@ -2,17 +2,18 @@ import * as React from "react"
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 
-import { OnboardingForm } from "@/features/onboarding/components/onboarding-form"
-import { ProvisioningPending } from "@/features/onboarding/components/provisioning-pending"
-import { resolveOnboardingRedirect } from "@/features/onboarding/lib/onboarding"
 import {
   appSessionQueryKey,
   appSessionQueryOptions,
+} from "@/features/app-session/queries/app-session-queries"
+import {
   bootstrapFirstDocument,
-  getApiErrorMessage,
-  isApiRequestErrorStatus,
-  onboardingTemplatesQueryOptions,
-} from "@/features/onboarding/queries/onboarding-queries"
+  templatesQueryOptions,
+} from "@/features/documents/queries/documents-queries"
+import { OnboardingForm } from "@/features/onboarding/components/onboarding-form"
+import { ProvisioningPending } from "@/features/onboarding/components/provisioning-pending"
+import { resolveOnboardingRedirect } from "@/features/onboarding/lib/onboarding"
+import { getApiErrorMessage, isApiRequestErrorStatus } from "@/lib/api-client"
 
 export const Route = createFileRoute("/onboarding")({
   loader: async ({ context, location }) => {
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/onboarding")({
         }
       }
 
-      await context.queryClient.ensureQueryData(onboardingTemplatesQueryOptions())
+      await context.queryClient.ensureQueryData(templatesQueryOptions())
       return null
     } catch (error) {
       if (isApiRequestErrorStatus(error, 401)) {
@@ -44,7 +45,7 @@ function OnboardingPage() {
   const navigate = useNavigate({ from: "/onboarding" })
   const queryClient = useQueryClient()
   const { data: session } = useSuspenseQuery(appSessionQueryOptions())
-  const { data: templates } = useSuspenseQuery(onboardingTemplatesQueryOptions())
+  const { data: templates } = useSuspenseQuery(templatesQueryOptions())
 
   const mutation = useMutation({
     mutationFn: bootstrapFirstDocument,

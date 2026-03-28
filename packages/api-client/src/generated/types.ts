@@ -340,6 +340,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             }[];
@@ -423,6 +424,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -512,6 +514,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             }[];
@@ -603,6 +606,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -751,6 +755,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -885,6 +890,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -1003,6 +1009,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -1166,6 +1173,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -1399,6 +1407,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -1531,7 +1540,7 @@ export interface paths {
                                 /** @enum {string} */
                                 actionType: "replace" | "insert_below";
                                 /** @enum {string} */
-                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                status: "pending" | "applied" | "dismissed" | "invalidated";
                                 baseUpdatedAt: string;
                                 targetBlockIds: string[];
                                 appliedAt: string | null;
@@ -1598,6 +1607,109 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/documents/{documentId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List document version snapshots */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Document versions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            versions: {
+                                id: string;
+                                documentId: string;
+                                userId: string;
+                                contentJson: ({
+                                    /** @enum {string} */
+                                    type: "heading";
+                                    id: string;
+                                    level: 1 | 2 | 3;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "paragraph";
+                                    id: string;
+                                    children: {
+                                        text: string;
+                                    }[];
+                                } | {
+                                    /** @enum {string} */
+                                    type: "bullet-list";
+                                    id: string;
+                                    children: {
+                                        /** @enum {string} */
+                                        type: "list-item";
+                                        id: string;
+                                        children: {
+                                            text: string;
+                                        }[];
+                                    }[];
+                                })[];
+                                plainText: string | null;
+                                /** @enum {string} */
+                                trigger: "initial_template" | "outline_apply" | "ai_proposal_apply";
+                                snapshotLabel: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1677,6 +1789,7 @@ export interface paths {
                                 })[];
                                 plainText: string | null;
                                 archivedAt: string | null;
+                                lastOpenedAt: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                             };
@@ -1721,7 +1834,7 @@ export interface paths {
                                 /** @enum {string} */
                                 actionType: "replace" | "insert_below";
                                 /** @enum {string} */
-                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                status: "pending" | "applied" | "dismissed" | "invalidated";
                                 baseUpdatedAt: string;
                                 targetBlockIds: string[];
                                 appliedAt: string | null;
@@ -1849,7 +1962,7 @@ export interface paths {
                                 /** @enum {string} */
                                 actionType: "replace" | "insert_below";
                                 /** @enum {string} */
-                                status: "pending" | "applied" | "dismissed" | "invalidated" | "previewed";
+                                status: "pending" | "applied" | "dismissed" | "invalidated";
                                 baseUpdatedAt: string;
                                 targetBlockIds: string[];
                                 appliedAt: string | null;
