@@ -20,10 +20,13 @@ import {
 } from "@aqshara/storage";
 import { createHash } from "node:crypto";
 import { UnrecoverableError } from "bullmq";
-import { extractPdfPageTexts, pageIndicesNeedingOcr } from "../lib/pdf-text-extractor.js";
-import { runMistralOcrOnPdfKey } from "../lib/mistral-ocr.js";
-import { logWorkerSourceParseFailureEvent } from "./source-parse-error-event.js";
-import { getSourceParseFailureStrategy } from "./source-parse-failure-strategy.js";
+import {
+  extractPdfPageTexts,
+  pageIndicesNeedingOcr,
+} from "../lib/pdf-text-extractor.ts";
+import { runMistralOcrOnPdfKey } from "../lib/mistral-ocr.ts";
+import { logWorkerSourceParseFailureEvent } from "./source-parse-error-event.ts";
+import { getSourceParseFailureStrategy } from "./source-parse-failure-strategy.ts";
 
 const PARSED_TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
 const MAX_SOURCE_PAGES = 300;
@@ -368,10 +371,7 @@ export async function processSourceParseJob(
     if (again?.status === "ready") {
       return;
     }
-    if (
-      again?.status === "processing" &&
-      again.bullmqJobId === bullmqJobId
-    ) {
+    if (again?.status === "processing" && again.bullmqJobId === bullmqJobId) {
       // BullMQ reuses the same job id across retry attempts; continue processing.
     } else if (again?.status === "processing") {
       return;
@@ -428,7 +428,9 @@ export async function processSourceParseJob(
     const sourceRow = row as Record<string, unknown>;
     const declaredChecksum = sourceRow.checksum as string | undefined;
     if (declaredChecksum) {
-      const actualChecksum = createHash("sha256").update(pdfBytes).digest("hex");
+      const actualChecksum = createHash("sha256")
+        .update(pdfBytes)
+        .digest("hex");
       if (actualChecksum.toLowerCase() !== declaredChecksum.toLowerCase()) {
         await failSourceParseJob({
           db,

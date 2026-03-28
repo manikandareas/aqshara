@@ -1,0 +1,1257 @@
+{
+  "info": {
+    "_postman_id": "cd4182e4-5bbc-49de-a6a2-cfd8f5f4d2df",
+    "name": "Aqshara API E2E",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Stateful end-to-end sequence for Aqshara local API, Clerk auth, documents, AI, sources, exports, and cleanup."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth & Webhook",
+      "item": [
+        {
+          "name": "01. Clerk - Start Sign In",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{clerk_frontend_api_url}}/v1/client/sign_ins"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "identifier={{clerk_email}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "[\"clerk_frontend_api_url\", \"clerk_email\", \"clerk_password\"].forEach(function (key) {",
+                  "      var value = (pm.environment.get(key) || \"\").trim();",
+                  "      if (!value) {",
+                  "        throw new Error(key + \" environment variable is required\");",
+                  "      }",
+                  "    });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"clerk sign-in start returns success\", function () {",
+                  "      pm.expect([200, 201]).to.include(pm.response.code);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    var payload = json.response || json;",
+                  "    var signInId = payload.id || \"\";",
+                  "    pm.test(\"clerk sign-in id is present\", function () {",
+                  "      pm.expect(signInId).to.not.eql(\"\");",
+                  "    });",
+                  "    pm.environment.set(\"clerk_sign_in_id\", signInId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02. Clerk - Attempt Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{clerk_frontend_api_url}}/v1/client/sign_ins/{{clerk_sign_in_id}}/attempt_first_factor"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "strategy=password&password={{clerk_password}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"clerk password attempt returns success\", function () {",
+                  "      pm.expect([200, 201]).to.include(pm.response.code);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    var payload = json.response || json;",
+                  "    if (payload.status === \"needs_second_factor\") {",
+                  "      throw new Error(\"This Postman suite assumes Clerk MFA is disabled for the test user\");",
+                  "    }",
+                  "    var sessionId = payload.created_session_id || payload.createdSessionId || \"\";",
+                  "    pm.test(\"clerk returns a created_session_id\", function () {",
+                  "      pm.expect(sessionId).to.not.eql(\"\");",
+                  "    });",
+                  "    pm.environment.set(\"clerk_session_id\", sessionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03. Clerk - Read Client Session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{clerk_frontend_api_url}}/v1/client"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"clerk client returns success\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    var payload = json.response || json;",
+                  "    var sessions = payload.sessions || [];",
+                  "    var clerkSessionId = pm.environment.get(\"clerk_session_id\");",
+                  "    var activeSession = sessions.find(function (entry) {",
+                  "      return entry.id === clerkSessionId;",
+                  "    }) || sessions[0];",
+                  "    var accessToken = activeSession && activeSession.last_active_token",
+                  "      ? (activeSession.last_active_token.jwt || \"\")",
+                  "      : \"\";",
+                  "    pm.test(\"clerk client exposes session jwt\", function () {",
+                  "      pm.expect(accessToken).to.not.eql(\"\");",
+                  "    });",
+                  "    pm.environment.set(\"access_token\", accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04. Webhook - Signed user.created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/clerk"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{clerk_webhook_payload}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var webhookUserId = (pm.environment.get(\"clerk_webhook_user_id\") || \"\").trim() || (\"postman_webhook_\" + Date.now());",
+                  "    var webhookEmail = (pm.environment.get(\"clerk_webhook_email\") || \"\").trim() || \"postman-webhook@example.com\";",
+                  "    var payload = JSON.stringify({",
+                  "      type: \"user.created\",",
+                  "      data: {",
+                  "        id: webhookUserId,",
+                  "        primary_email_address_id: webhookUserId + \"_primary_email\",",
+                  "        email_addresses: [",
+                  "          {",
+                  "            id: webhookUserId + \"_primary_email\",",
+                  "            email_address: webhookEmail",
+                  "          }",
+                  "        ],",
+                  "        first_name: \"Postman\",",
+                  "        last_name: \"Webhook\",",
+                  "        username: null,",
+                  "        image_url: null",
+                  "      }",
+                  "    });",
+                  "    var secret = (pm.environment.get(\"clerk_webhook_signing_secret\") || \"\").trim();",
+                  "    if (!secret) {",
+                  "      throw new Error(\"clerk_webhook_signing_secret environment variable is required\");",
+                  "    }",
+                  "    var messageId = \"msg_\" + Date.now();",
+                  "    var timestamp = String(Math.floor(Date.now() / 1000));",
+                  "    var normalizedSecret = secret.replace(/^whsec_/, \"\");",
+                  "    var key = CryptoJS.enc.Base64.parse(normalizedSecret);",
+                  "    var signedContent = messageId + \".\" + timestamp + \".\" + payload;",
+                  "    var signature = CryptoJS.enc.Base64.stringify(CryptoJS.HmacSHA256(signedContent, key));",
+                  "    pm.environment.set(\"clerk_webhook_payload\", payload);",
+                  "    pm.request.headers.upsert({ key: \"svix-id\", value: messageId });",
+                  "    pm.request.headers.upsert({ key: \"svix-timestamp\", value: timestamp });",
+                  "    pm.request.headers.upsert({ key: \"svix-signature\", value: \"v1,\" + signature });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"signed webhook returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05. Webhook - Invalid Signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/clerk"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{clerk_webhook_payload}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({ key: \"svix-id\", value: \"invalid_\" + Date.now() });",
+                  "    pm.request.headers.upsert({ key: \"svix-timestamp\", value: String(Math.floor(Date.now() / 1000)) });",
+                  "    pm.request.headers.upsert({ key: \"svix-signature\", value: \"v1,invalid\" });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"invalid webhook returns 400\", function () {",
+                  "      pm.response.to.have.status(400);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06. Session - Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/me"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"session bootstrap returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"user_id\", json.user.id);",
+                  "    pm.environment.set(\"workspace_id\", json.workspace.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Documents & AI",
+      "item": [
+        {
+          "name": "07. Templates - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/templates"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"templates returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08. Documents - Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Primary Document\",\n  \"type\": \"general_paper\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"create document returns 201\", function () {",
+                  "      pm.response.to.have.status(201);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_id_primary\", json.document.id);",
+                  "    pm.environment.set(\"document_updated_at_primary\", json.document.updatedAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09. Documents - Get Primary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"get document returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Documents - Patch Primary",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Primary Document Updated\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"patch document returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_updated_at_primary\", json.document.updatedAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Documents - Recent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/recent?limit=5"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"recent documents returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Documents - Bootstrap",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/bootstrap"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Bootstrap Document\",\n  \"type\": \"general_paper\",\n  \"templateCode\": \"general_paper\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"bootstrap returns 201\", function () {",
+                  "      pm.response.to.have.status(201);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_id_bootstrap\", json.document.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12A. Documents - Archive Bootstrap",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_bootstrap}}/archive"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"archive bootstrap returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. Documents - Save Content",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/content"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contentJson\": [\n    {\n      \"type\": \"paragraph\",\n      \"id\": \"postman-block-1\",\n      \"children\": [\n        {\n          \"text\": \"Konten awal dari suite Postman Aqshara.\"\n        }\n      ]\n    }\n  ],\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"save content returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_updated_at_primary\", json.document.updatedAt);",
+                  "    pm.environment.set(\"primary_block_id\", \"postman-block-1\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14. AI - Generate Outline",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/generate"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"Struktur tulisan akademik untuk riset produktivitas\",\n  \"idempotencyKey\": \"postman-outline-generate\",\n  \"templateCode\": \"general_paper\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"generate outline returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"generated_outline_json\", JSON.stringify(json.outline));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15. AI - Apply Outline",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/apply"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outline\": {{generated_outline_json}},\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"apply outline returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_updated_at_primary\", json.document.updatedAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16. AI - Generate Proposal For Apply",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"rewrite\",\n  \"targetBlockIds\": [\n    \"{{primary_block_id}}\"\n  ],\n  \"idempotencyKey\": \"postman-proposal-apply\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"generate proposal for apply returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"proposal_id_apply\", json.proposal.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17. AI - Apply Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_apply}}/apply"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\",\n  \"mode\": \"replace\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"apply proposal returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"document_updated_at_primary\", json.document.updatedAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18. AI - Generate Proposal For Dismiss",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"simplify\",\n  \"targetBlockIds\": [\n    \"{{primary_block_id}}\"\n  ],\n  \"idempotencyKey\": \"postman-proposal-dismiss\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"generate proposal for dismiss returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"proposal_id_dismiss\", json.proposal.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19. AI - Dismiss Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_dismiss}}/dismiss"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"dismiss proposal returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sources & Exports",
+      "item": [
+        {
+          "name": "20. Sources - Create Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/sources/upload-url"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"upload-url returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"source_id\", json.sourceId);",
+                  "    pm.environment.set(\"storage_key\", json.storageKey);",
+                  "    pm.environment.set(\"upload_url\", json.uploadUrl);",
+                  "    pm.environment.set(\"source_status_poll_attempt\", \"0\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "21. Sources - Upload Sample PDF",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/pdf",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{upload_url}}"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "postman/sample.pdf"
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"sample upload returns success\", function () {",
+                  "      pm.expect([200, 201, 204]).to.include(pm.response.code);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "22. Sources - Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/sources/register"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentId\": \"{{document_id_primary}}\",\n  \"sourceId\": \"{{source_id}}\",\n  \"storageKey\": \"{{storage_key}}\",\n  \"originalFileName\": \"sample.pdf\",\n  \"fileSizeBytes\": 320304,\n  \"checksum\": \"23141963a66cf2a4ea88de5cb0c6c2833c080db886993d4f569c54cf10cc0594\",\n  \"mimeType\": \"application/pdf\",\n  \"idempotencyKey\": \"postman-source-register\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"register source returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.environment.set(\"source_status_poll_attempt\", \"0\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "23. Sources - List For Document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/sources"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"list sources returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "24. Sources - Get Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/sources/{{source_id}}/status"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"source status returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    var status = (json.source && json.source.status) || \"\";",
+                  "    var attempt = parseInt(pm.environment.get(\"source_status_poll_attempt\") || \"0\", 10) + 1;",
+                  "    var maxAttempts = parseInt(pm.environment.get(\"poll_max_attempts\") || \"15\", 10);",
+                  "    pm.environment.set(\"source_status_poll_attempt\", String(attempt));",
+                  "    pm.environment.set(\"source_status\", status);",
+                  "    if ((status === \"queued\" || status === \"processing\") && attempt < maxAttempts) {",
+                  "      postman.setNextRequest(\"24. Sources - Get Status\");",
+                  "    } else if (status === \"failed\") {",
+                  "      postman.setNextRequest(\"25. Sources - Retry If Failed\");",
+                  "    } else {",
+                  "      postman.setNextRequest(\"26. Exports - Preflight\");",
+                  "    }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "25. Sources - Retry If Failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/sources/{{source_id}}/retry"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"retry source returns 200 when source failed\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    postman.setNextRequest(\"26. Exports - Preflight\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "26. Exports - Preflight",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx/preflight"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"export preflight returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "27. Exports - Queue DOCX Export",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencyKey\": \"postman-export-docx\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"queue export returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"export_id\", json.export.id);",
+                  "    pm.environment.set(\"export_status_poll_attempt\", \"0\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "28. Exports - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/exports?limit=20"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"list exports returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "29. Exports - Get Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/exports/{{export_id}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"export status returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    var status = (json.export && json.export.status) || \"\";",
+                  "    var attempt = parseInt(pm.environment.get(\"export_status_poll_attempt\") || \"0\", 10) + 1;",
+                  "    var maxAttempts = parseInt(pm.environment.get(\"poll_max_attempts\") || \"15\", 10);",
+                  "    pm.environment.set(\"export_status_poll_attempt\", String(attempt));",
+                  "    pm.environment.set(\"export_status\", status);",
+                  "    if ((status === \"queued\" || status === \"processing\") && attempt < maxAttempts) {",
+                  "      postman.setNextRequest(\"29. Exports - Get Status\");",
+                  "    } else if (status === \"ready\") {",
+                  "      postman.setNextRequest(\"30. Exports - Download If Ready\");",
+                  "    } else if (status === \"failed\") {",
+                  "      postman.setNextRequest(\"31. Exports - Retry If Failed\");",
+                  "    } else {",
+                  "      postman.setNextRequest(\"32. Sources - Delete\");",
+                  "    }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "30. Exports - Download If Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/exports/{{export_id}}/download"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"download returns 200 or 302\", function () {",
+                  "      pm.expect([200, 302]).to.include(pm.response.code);",
+                  "    });",
+                  "    postman.setNextRequest(\"32. Sources - Delete\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "31. Exports - Retry If Failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/exports/{{export_id}}/retry"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"retry export returns 200 when export failed\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    postman.setNextRequest(\"32. Sources - Delete\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "32. Sources - Delete",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/sources/{{source_id}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"delete source returns 204\", function () {",
+                  "      pm.response.to.have.status(204);",
+                  "    });",
+                  "    postman.setNextRequest(\"33. Cleanup - Delete Bootstrap Document\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "33. Cleanup - Delete Bootstrap Document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_bootstrap}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"delete bootstrap document returns 204\", function () {",
+                  "      pm.response.to.have.status(204);",
+                  "    });",
+                  "    postman.setNextRequest(\"34. Cleanup - Delete Primary Document\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "34. Cleanup - Delete Primary Document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"delete primary document returns 204\", function () {",
+                  "      pm.response.to.have.status(204);",
+                  "    });",
+                  "    [",
+                  "      \"document_id_primary\",",
+                  "      \"document_id_bootstrap\",",
+                  "      \"document_updated_at_primary\",",
+                  "      \"proposal_id_apply\",",
+                  "      \"proposal_id_dismiss\",",
+                  "      \"source_id\",",
+                  "      \"storage_key\",",
+                  "      \"upload_url\",",
+                  "      \"source_status\",",
+                  "      \"export_id\",",
+                  "      \"export_status\"",
+                  "    ].forEach(function (key) {",
+                  "      pm.environment.unset(key);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

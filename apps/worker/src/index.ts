@@ -1,14 +1,10 @@
-import { getRedisClient, getRedisConnection } from "@aqshara/config";
+import { getRedisConnection } from "@aqshara/config";
 import { loadWorkspaceEnv } from "@aqshara/config/load-env";
-import {
-  createDatabase,
-  exportsTable,
-  sourcesTable,
-} from "@aqshara/database";
+import { createDatabase, exportsTable, sourcesTable } from "@aqshara/database";
 import { markExportFailed } from "@aqshara/database/export-job";
 import { markSourceFailed } from "@aqshara/database/source-job";
 import { createLogger } from "@aqshara/observability";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import {
   exportDocxJobName,
@@ -17,9 +13,10 @@ import {
   parseSourcePayloadSchema,
   queueNames,
 } from "@aqshara/queue";
-import { processExportDocxJob } from "./jobs/export-docx.js";
-import { processSourceParseJob } from "./jobs/source-parse.js";
-import { getWorkerRuntimeConfig } from "./lib/worker-runtime.js";
+import { processExportDocxJob } from "./jobs/export-docx.ts";
+import { processSourceParseJob } from "./jobs/source-parse.ts";
+import { validateStartupDependencies } from "./lib/startup-dependencies.ts";
+import { getWorkerRuntimeConfig } from "./lib/worker-runtime.ts";
 
 loadWorkspaceEnv();
 
@@ -76,11 +73,6 @@ async function reconcileStuckJobs(): Promise<void> {
       errorMessage: "Source was recovered after worker restart",
     });
   }
-}
-
-async function validateStartupDependencies(): Promise<void> {
-  const db = createDatabase();
-  await Promise.all([getRedisClient().ping(), db.execute(sql`select 1`)]);
 }
 
 async function startWorkers(): Promise<void> {

@@ -19,41 +19,45 @@ const envSchema = z.object({
   MISTRAL_API_BASE_URL: z.url().default("https://api.mistral.ai"),
 });
 
-const env = envSchema.parse({
-  API_BASE_URL: process.env.API_BASE_URL,
-  NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-  CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
-  REDIS_HOST: process.env.REDIS_HOST,
-  REDIS_PORT: process.env.REDIS_PORT,
-  DATABASE_URL: process.env.DATABASE_URL,
-  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID,
-  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
-  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
-  R2_BUCKET: process.env.R2_BUCKET,
-  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
-  MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL,
-});
+function readEnv() {
+  return envSchema.parse({
+    API_BASE_URL: process.env.API_BASE_URL,
+    NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    REDIS_HOST: process.env.REDIS_HOST,
+    REDIS_PORT: process.env.REDIS_PORT,
+    DATABASE_URL: process.env.DATABASE_URL,
+    R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID,
+    R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
+    R2_BUCKET: process.env.R2_BUCKET,
+    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+    MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL,
+  });
+}
 
 let redisClient: RedisClient | undefined;
 
 export function getApiBaseUrl() {
-  return env.API_BASE_URL;
+  return readEnv().API_BASE_URL;
 }
 
 export function getPublicApiBaseUrl() {
-  return env.NEXT_PUBLIC_API_BASE_URL;
+  return readEnv().NEXT_PUBLIC_API_BASE_URL;
 }
 
 export function getClerkPublishableKey() {
-  return env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  return readEnv().NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 }
 
 export function getClerkSecretKey() {
-  return env.CLERK_SECRET_KEY;
+  return readEnv().CLERK_SECRET_KEY;
 }
 
 export function getRedisConnection() {
+  const env = readEnv();
   return {
     host: env.REDIS_HOST,
     port: env.REDIS_PORT,
@@ -93,7 +97,7 @@ export function getRedisClient(): RedisClient {
 }
 
 export function getDatabaseUrl() {
-  return env.DATABASE_URL;
+  return readEnv().DATABASE_URL;
 }
 
 export type R2Config = {
@@ -104,6 +108,7 @@ export type R2Config = {
 };
 
 export function getR2Config(): R2Config | null {
+  const env = readEnv();
   const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } =
     env;
   if (
@@ -127,9 +132,9 @@ export function getR2Endpoint(accountId: string) {
 }
 
 export function getMistralApiKey() {
-  return env.MISTRAL_API_KEY ?? null;
+  return readEnv().MISTRAL_API_KEY ?? null;
 }
 
 export function getMistralApiBaseUrl() {
-  return env.MISTRAL_API_BASE_URL;
+  return readEnv().MISTRAL_API_BASE_URL;
 }

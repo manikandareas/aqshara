@@ -11,9 +11,9 @@ import type { ExportDocxPayload } from "@aqshara/queue";
 import { createStorageKey, writeExportFile } from "@aqshara/storage";
 import { UnrecoverableError } from "bullmq";
 import { eq } from "drizzle-orm";
-import { renderDocumentValueToDocxBuffer } from "../render-docx.js";
-import { logWorkerExportFailureEvent } from "./export-docx-error-event.js";
-import { getExportFailureStrategy } from "./export-docx-failure-strategy.js";
+import { renderDocumentValueToDocxBuffer } from "../render-docx.ts";
+import { logWorkerExportFailureEvent } from "./export-docx-error-event.ts";
+import { getExportFailureStrategy } from "./export-docx-failure-strategy.ts";
 
 const DOCX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -219,10 +219,7 @@ export async function processExportDocxJob(
     if (again?.status === "ready") {
       return;
     }
-    if (
-      again?.status === "processing" &&
-      again.bullmqJobId === bullmqJobId
-    ) {
+    if (again?.status === "processing" && again.bullmqJobId === bullmqJobId) {
       // BullMQ keeps the same job id across retry attempts.
     } else if (again?.status === "processing") {
       return;
