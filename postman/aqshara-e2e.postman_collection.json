@@ -20,25 +20,19 @@
       "name": "Auth & Webhook",
       "item": [
         {
-          "name": "01. Clerk - Start Sign In",
+          "name": "01. Clerk - Resolve User By Email",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
-                "value": "application/x-www-form-urlencoded",
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}",
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{clerk_frontend_api_url}}/v1/client/sign_ins"
-            },
+            "url": "{{clerk_api_url}}/users?email_address[]={{clerk_email}}&limit=1",
             "auth": {
               "type": "noauth"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "identifier={{clerk_email}}"
             }
           },
           "event": [
@@ -47,10 +41,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "[\"clerk_frontend_api_url\", \"clerk_email\", \"clerk_password\"].forEach(function (key) {",
+                  "[\"clerk_api_url\", \"clerk_secret_key\", \"clerk_email\", \"clerk_password\", \"clerk_jwt_template\"].forEach(function (key) {",
                   "      var value = (pm.environment.get(key) || \"\").trim();",
                   "      if (!value) {",
-                  "        throw new Error(key + \" environment variable is required\");",
+                  "        throw new Error(key + \" environment variable is required for Clerk Postman login\");",
                   "      }",
                   "    });"
                 ]
@@ -61,41 +55,43 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"clerk sign-in start returns success\", function () {",
-                  "      pm.expect([200, 201]).to.include(pm.response.code);",
+                  "pm.test(\"clerk user lookup returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
                   "    });",
-                  "    var json = pm.response.json();",
-                  "    var payload = json.response || json;",
-                  "    var signInId = payload.id || \"\";",
-                  "    pm.test(\"clerk sign-in id is present\", function () {",
-                  "      pm.expect(signInId).to.not.eql(\"\");",
+                  "    var users = pm.response.json();",
+                  "    var user = Array.isArray(users) ? users[0] : null;",
+                  "    pm.test(\"clerk user lookup returns a matching user\", function () {",
+                  "      pm.expect(user && user.id).to.not.eql(undefined);",
                   "    });",
-                  "    pm.environment.set(\"clerk_sign_in_id\", signInId);"
+                  "    pm.environment.set(\"clerk_user_id\", user.id);"
                 ]
               }
             }
           ]
         },
         {
-          "name": "02. Clerk - Attempt Password",
+          "name": "02. Clerk - Verify Password",
           "request": {
             "method": "POST",
             "header": [
               {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}",
+                "type": "text"
+              },
+              {
                 "key": "Content-Type",
-                "value": "application/x-www-form-urlencoded",
+                "value": "application/json",
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{clerk_frontend_api_url}}/v1/client/sign_ins/{{clerk_sign_in_id}}/attempt_first_factor"
-            },
+            "url": "{{clerk_api_url}}/users/{{clerk_user_id}}/verify_password",
             "auth": {
               "type": "noauth"
             },
             "body": {
               "mode": "raw",
-              "raw": "strategy=password&password={{clerk_password}}"
+              "raw": "{\n  \"password\": \"{{clerk_password}}\"\n}"
             }
           },
           "event": [
@@ -104,32 +100,74 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"clerk password attempt returns success\", function () {",
-                  "      pm.expect([200, 201]).to.include(pm.response.code);",
+                  "pm.test(\"clerk password verification returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
                   "    });",
                   "    var json = pm.response.json();",
-                  "    var payload = json.response || json;",
-                  "    if (payload.status === \"needs_second_factor\") {",
-                  "      throw new Error(\"This Postman suite assumes Clerk MFA is disabled for the test user\");",
-                  "    }",
-                  "    var sessionId = payload.created_session_id || payload.createdSessionId || \"\";",
-                  "    pm.test(\"clerk returns a created_session_id\", function () {",
-                  "      pm.expect(sessionId).to.not.eql(\"\");",
-                  "    });",
-                  "    pm.environment.set(\"clerk_session_id\", sessionId);"
+                  "    pm.test(\"clerk password verification succeeds\", function () {",
+                  "      pm.expect(json.verified).to.eql(true);",
+                  "    });"
                 ]
               }
             }
           ]
         },
         {
-          "name": "03. Clerk - Read Client Session",
+          "name": "03. Clerk - Create Session",
           "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{clerk_frontend_api_url}}/v1/client"
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{clerk_api_url}}/sessions",
+            "auth": {
+              "type": "noauth"
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{clerk_user_id}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"clerk create session returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.test(\"clerk session id is present\", function () {",
+                  "      pm.expect(json.id).to.not.eql(\"\");",
+                  "    });",
+                  "    pm.environment.set(\"clerk_session_id\", json.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04. Clerk - Create Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clerk_secret_key}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{clerk_api_url}}/sessions/{{clerk_session_id}}/tokens/{{clerk_jwt_template}}",
             "auth": {
               "type": "noauth"
             }
@@ -140,20 +178,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"clerk client returns success\", function () {",
+                  "pm.test(\"clerk create token returns 200\", function () {",
                   "      pm.response.to.have.status(200);",
                   "    });",
                   "    var json = pm.response.json();",
-                  "    var payload = json.response || json;",
-                  "    var sessions = payload.sessions || [];",
-                  "    var clerkSessionId = pm.environment.get(\"clerk_session_id\");",
-                  "    var activeSession = sessions.find(function (entry) {",
-                  "      return entry.id === clerkSessionId;",
-                  "    }) || sessions[0];",
-                  "    var accessToken = activeSession && activeSession.last_active_token",
-                  "      ? (activeSession.last_active_token.jwt || \"\")",
-                  "      : \"\";",
-                  "    pm.test(\"clerk client exposes session jwt\", function () {",
+                  "    var accessToken = (json.jwt || \"\").trim();",
+                  "    pm.test(\"clerk token response includes jwt\", function () {",
                   "      pm.expect(accessToken).to.not.eql(\"\");",
                   "    });",
                   "    pm.environment.set(\"access_token\", accessToken);"
@@ -163,7 +193,52 @@
           ]
         },
         {
-          "name": "04. Webhook - Signed user.created",
+          "name": "05. Session - Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/v1/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"session bootstrap returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });",
+                  "    var json = pm.response.json();",
+                  "    pm.environment.set(\"user_id\", json.user.id);",
+                  "    pm.environment.set(\"workspace_id\", json.workspace.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06. Templates - List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/v1/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"templates returns 200\", function () {",
+                  "      pm.response.to.have.status(200);",
+                  "    });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07. Webhook - Signed user.created",
           "request": {
             "method": "POST",
             "header": [
@@ -173,9 +248,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/webhooks/clerk"
-            },
+            "url": "{{base_url}}/webhooks/clerk",
             "auth": {
               "type": "noauth"
             },
@@ -240,7 +313,7 @@
           ]
         },
         {
-          "name": "05. Webhook - Invalid Signature",
+          "name": "08. Webhook - Invalid Signature",
           "request": {
             "method": "POST",
             "header": [
@@ -250,9 +323,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/webhooks/clerk"
-            },
+            "url": "{{base_url}}/webhooks/clerk",
             "auth": {
               "type": "noauth"
             },
@@ -285,32 +356,6 @@
               }
             }
           ]
-        },
-        {
-          "name": "06. Session - Me",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/me"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"session bootstrap returns 200\", function () {",
-                  "      pm.response.to.have.status(200);",
-                  "    });",
-                  "    var json = pm.response.json();",
-                  "    pm.environment.set(\"user_id\", json.user.id);",
-                  "    pm.environment.set(\"workspace_id\", json.workspace.id);"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -318,30 +363,7 @@
       "name": "Documents & AI",
       "item": [
         {
-          "name": "07. Templates - List",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/templates"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"templates returns 200\", function () {",
-                  "      pm.response.to.have.status(200);",
-                  "    });"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "08. Documents - Create",
+          "name": "09. Documents - Create",
           "request": {
             "method": "POST",
             "header": [
@@ -351,9 +373,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents"
-            },
+            "url": "{{base_url}}/v1/documents",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Postman Primary Document\",\n  \"type\": \"general_paper\"\n}"
@@ -377,13 +397,11 @@
           ]
         },
         {
-          "name": "09. Documents - Get Primary",
+          "name": "10. Documents - Get Primary",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
-            }
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}"
           },
           "event": [
             {
@@ -400,7 +418,7 @@
           ]
         },
         {
-          "name": "10. Documents - Patch Primary",
+          "name": "11. Documents - Patch Primary",
           "request": {
             "method": "PATCH",
             "header": [
@@ -410,9 +428,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Postman Primary Document Updated\"\n}"
@@ -435,13 +451,11 @@
           ]
         },
         {
-          "name": "11. Documents - Recent",
+          "name": "12. Documents - Recent",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/recent?limit=5"
-            }
+            "url": "{{base_url}}/v1/documents/recent?limit=5"
           },
           "event": [
             {
@@ -458,7 +472,7 @@
           ]
         },
         {
-          "name": "12. Documents - Bootstrap",
+          "name": "13. Documents - Bootstrap",
           "request": {
             "method": "POST",
             "header": [
@@ -468,9 +482,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/bootstrap"
-            },
+            "url": "{{base_url}}/v1/documents/bootstrap",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Postman Bootstrap Document\",\n  \"type\": \"general_paper\",\n  \"templateCode\": \"general_paper\"\n}"
@@ -493,7 +505,7 @@
           ]
         },
         {
-          "name": "12A. Documents - Archive Bootstrap",
+          "name": "14. Documents - Archive Bootstrap",
           "request": {
             "method": "POST",
             "header": [
@@ -503,9 +515,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_bootstrap}}/archive"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_bootstrap}}/archive",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -526,7 +536,7 @@
           ]
         },
         {
-          "name": "13. Documents - Save Content",
+          "name": "15. Documents - Save Content",
           "request": {
             "method": "PUT",
             "header": [
@@ -536,9 +546,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/content"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/content",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"contentJson\": [\n    {\n      \"type\": \"paragraph\",\n      \"id\": \"postman-block-1\",\n      \"children\": [\n        {\n          \"text\": \"Konten awal dari suite Postman Aqshara.\"\n        }\n      ]\n    }\n  ],\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\"\n}"
@@ -562,7 +570,7 @@
           ]
         },
         {
-          "name": "14. AI - Generate Outline",
+          "name": "16. AI - Generate Outline",
           "request": {
             "method": "POST",
             "header": [
@@ -572,9 +580,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/generate"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/generate",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"topic\": \"Struktur tulisan akademik untuk riset produktivitas\",\n  \"idempotencyKey\": \"postman-outline-generate\",\n  \"templateCode\": \"general_paper\"\n}"
@@ -597,7 +603,7 @@
           ]
         },
         {
-          "name": "15. AI - Apply Outline",
+          "name": "17. AI - Apply Outline",
           "request": {
             "method": "POST",
             "header": [
@@ -607,9 +613,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/apply"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/apply",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"outline\": {{generated_outline_json}},\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\"\n}"
@@ -632,7 +636,7 @@
           ]
         },
         {
-          "name": "16. AI - Generate Proposal For Apply",
+          "name": "18. AI - Generate Proposal For Apply",
           "request": {
             "method": "POST",
             "header": [
@@ -642,9 +646,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"action\": \"rewrite\",\n  \"targetBlockIds\": [\n    \"{{primary_block_id}}\"\n  ],\n  \"idempotencyKey\": \"postman-proposal-apply\"\n}"
@@ -667,7 +669,7 @@
           ]
         },
         {
-          "name": "17. AI - Apply Proposal",
+          "name": "19. AI - Apply Proposal",
           "request": {
             "method": "POST",
             "header": [
@@ -677,9 +679,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_apply}}/apply"
-            },
+            "url": "{{base_url}}/v1/ai/proposals/{{proposal_id_apply}}/apply",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"baseUpdatedAt\": \"{{document_updated_at_primary}}\",\n  \"mode\": \"replace\"\n}"
@@ -702,7 +702,7 @@
           ]
         },
         {
-          "name": "18. AI - Generate Proposal For Dismiss",
+          "name": "20. AI - Generate Proposal For Dismiss",
           "request": {
             "method": "POST",
             "header": [
@@ -712,9 +712,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"action\": \"simplify\",\n  \"targetBlockIds\": [\n    \"{{primary_block_id}}\"\n  ],\n  \"idempotencyKey\": \"postman-proposal-dismiss\"\n}"
@@ -737,7 +735,7 @@
           ]
         },
         {
-          "name": "19. AI - Dismiss Proposal",
+          "name": "21. AI - Dismiss Proposal",
           "request": {
             "method": "POST",
             "header": [
@@ -747,9 +745,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_dismiss}}/dismiss"
-            },
+            "url": "{{base_url}}/v1/ai/proposals/{{proposal_id_dismiss}}/dismiss",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -775,7 +771,7 @@
       "name": "Sources & Exports",
       "item": [
         {
-          "name": "20. Sources - Create Upload URL",
+          "name": "22. Sources - Create Upload URL",
           "request": {
             "method": "POST",
             "header": [
@@ -785,9 +781,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/upload-url"
-            },
+            "url": "{{base_url}}/v1/sources/upload-url",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -813,7 +807,7 @@
           ]
         },
         {
-          "name": "21. Sources - Upload Sample PDF",
+          "name": "23. Sources - Upload Sample PDF",
           "request": {
             "method": "PUT",
             "header": [
@@ -823,9 +817,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{upload_url}}"
-            },
+            "url": "{{upload_url}}",
             "auth": {
               "type": "noauth"
             },
@@ -851,7 +843,7 @@
           ]
         },
         {
-          "name": "22. Sources - Register",
+          "name": "24. Sources - Register",
           "request": {
             "method": "POST",
             "header": [
@@ -861,9 +853,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/register"
-            },
+            "url": "{{base_url}}/v1/sources/register",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"documentId\": \"{{document_id_primary}}\",\n  \"sourceId\": \"{{source_id}}\",\n  \"storageKey\": \"{{storage_key}}\",\n  \"originalFileName\": \"sample.pdf\",\n  \"fileSizeBytes\": 320304,\n  \"checksum\": \"23141963a66cf2a4ea88de5cb0c6c2833c080db886993d4f569c54cf10cc0594\",\n  \"mimeType\": \"application/pdf\",\n  \"idempotencyKey\": \"postman-source-register\"\n}"
@@ -885,13 +875,11 @@
           ]
         },
         {
-          "name": "23. Sources - List For Document",
+          "name": "25. Sources - List For Document",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/sources"
-            }
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/sources"
           },
           "event": [
             {
@@ -908,13 +896,11 @@
           ]
         },
         {
-          "name": "24. Sources - Get Status",
+          "name": "26. Sources - Get Status",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}/status"
-            }
+            "url": "{{base_url}}/v1/sources/{{source_id}}/status"
           },
           "event": [
             {
@@ -932,11 +918,11 @@
                   "    pm.environment.set(\"source_status_poll_attempt\", String(attempt));",
                   "    pm.environment.set(\"source_status\", status);",
                   "    if ((status === \"queued\" || status === \"processing\") && attempt < maxAttempts) {",
-                  "      postman.setNextRequest(\"24. Sources - Get Status\");",
+                  "      postman.setNextRequest(\"26. Sources - Get Status\");",
                   "    } else if (status === \"failed\") {",
-                  "      postman.setNextRequest(\"25. Sources - Retry If Failed\");",
+                  "      postman.setNextRequest(\"27. Sources - Retry If Failed\");",
                   "    } else {",
-                  "      postman.setNextRequest(\"26. Exports - Preflight\");",
+                  "      postman.setNextRequest(\"28. Exports - Preflight\");",
                   "    }"
                 ]
               }
@@ -944,7 +930,7 @@
           ]
         },
         {
-          "name": "25. Sources - Retry If Failed",
+          "name": "27. Sources - Retry If Failed",
           "request": {
             "method": "POST",
             "header": [
@@ -954,9 +940,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}/retry"
-            },
+            "url": "{{base_url}}/v1/sources/{{source_id}}/retry",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -971,14 +955,14 @@
                   "pm.test(\"retry source returns 200 when source failed\", function () {",
                   "      pm.response.to.have.status(200);",
                   "    });",
-                  "    postman.setNextRequest(\"26. Exports - Preflight\");"
+                  "    postman.setNextRequest(\"28. Exports - Preflight\");"
                 ]
               }
             }
           ]
         },
         {
-          "name": "26. Exports - Preflight",
+          "name": "28. Exports - Preflight",
           "request": {
             "method": "POST",
             "header": [
@@ -988,9 +972,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx/preflight"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx/preflight",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -1011,7 +993,7 @@
           ]
         },
         {
-          "name": "27. Exports - Queue DOCX Export",
+          "name": "29. Exports - Queue DOCX Export",
           "request": {
             "method": "POST",
             "header": [
@@ -1021,9 +1003,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"idempotencyKey\": \"postman-export-docx\"\n}"
@@ -1047,13 +1027,11 @@
           ]
         },
         {
-          "name": "28. Exports - List",
+          "name": "30. Exports - List",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports?limit=20"
-            }
+            "url": "{{base_url}}/v1/exports?limit=20"
           },
           "event": [
             {
@@ -1070,13 +1048,11 @@
           ]
         },
         {
-          "name": "29. Exports - Get Status",
+          "name": "31. Exports - Get Status",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}"
-            }
+            "url": "{{base_url}}/v1/exports/{{export_id}}"
           },
           "event": [
             {
@@ -1094,13 +1070,13 @@
                   "    pm.environment.set(\"export_status_poll_attempt\", String(attempt));",
                   "    pm.environment.set(\"export_status\", status);",
                   "    if ((status === \"queued\" || status === \"processing\") && attempt < maxAttempts) {",
-                  "      postman.setNextRequest(\"29. Exports - Get Status\");",
+                  "      postman.setNextRequest(\"31. Exports - Get Status\");",
                   "    } else if (status === \"ready\") {",
-                  "      postman.setNextRequest(\"30. Exports - Download If Ready\");",
+                  "      postman.setNextRequest(\"32. Exports - Download If Ready\");",
                   "    } else if (status === \"failed\") {",
-                  "      postman.setNextRequest(\"31. Exports - Retry If Failed\");",
+                  "      postman.setNextRequest(\"33. Exports - Retry If Failed\");",
                   "    } else {",
-                  "      postman.setNextRequest(\"32. Sources - Delete\");",
+                  "      postman.setNextRequest(\"34. Sources - Delete\");",
                   "    }"
                 ]
               }
@@ -1108,13 +1084,11 @@
           ]
         },
         {
-          "name": "30. Exports - Download If Ready",
+          "name": "32. Exports - Download If Ready",
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}/download"
-            }
+            "url": "{{base_url}}/v1/exports/{{export_id}}/download"
           },
           "event": [
             {
@@ -1125,14 +1099,14 @@
                   "pm.test(\"download returns 200 or 302\", function () {",
                   "      pm.expect([200, 302]).to.include(pm.response.code);",
                   "    });",
-                  "    postman.setNextRequest(\"32. Sources - Delete\");"
+                  "    postman.setNextRequest(\"34. Sources - Delete\");"
                 ]
               }
             }
           ]
         },
         {
-          "name": "31. Exports - Retry If Failed",
+          "name": "33. Exports - Retry If Failed",
           "request": {
             "method": "POST",
             "header": [
@@ -1142,9 +1116,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}/retry"
-            },
+            "url": "{{base_url}}/v1/exports/{{export_id}}/retry",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -1159,20 +1131,18 @@
                   "pm.test(\"retry export returns 200 when export failed\", function () {",
                   "      pm.response.to.have.status(200);",
                   "    });",
-                  "    postman.setNextRequest(\"32. Sources - Delete\");"
+                  "    postman.setNextRequest(\"34. Sources - Delete\");"
                 ]
               }
             }
           ]
         },
         {
-          "name": "32. Sources - Delete",
+          "name": "34. Sources - Delete",
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}"
-            }
+            "url": "{{base_url}}/v1/sources/{{source_id}}"
           },
           "event": [
             {
@@ -1183,20 +1153,18 @@
                   "pm.test(\"delete source returns 204\", function () {",
                   "      pm.response.to.have.status(204);",
                   "    });",
-                  "    postman.setNextRequest(\"33. Cleanup - Delete Bootstrap Document\");"
+                  "    postman.setNextRequest(\"35. Cleanup - Delete Bootstrap Document\");"
                 ]
               }
             }
           ]
         },
         {
-          "name": "33. Cleanup - Delete Bootstrap Document",
+          "name": "35. Cleanup - Delete Bootstrap Document",
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_bootstrap}}"
-            }
+            "url": "{{base_url}}/v1/documents/{{document_id_bootstrap}}"
           },
           "event": [
             {
@@ -1207,20 +1175,18 @@
                   "pm.test(\"delete bootstrap document returns 204\", function () {",
                   "      pm.response.to.have.status(204);",
                   "    });",
-                  "    postman.setNextRequest(\"34. Cleanup - Delete Primary Document\");"
+                  "    postman.setNextRequest(\"36. Cleanup - Delete Primary Document\");"
                 ]
               }
             }
           ]
         },
         {
-          "name": "34. Cleanup - Delete Primary Document",
+          "name": "36. Cleanup - Delete Primary Document",
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
-            }
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}"
           },
           "event": [
             {
@@ -1232,6 +1198,8 @@
                   "      pm.response.to.have.status(204);",
                   "    });",
                   "    [",
+                  "      \"clerk_user_id\",",
+                  "      \"clerk_session_id\",",
                   "      \"document_id_primary\",",
                   "      \"document_id_bootstrap\",",
                   "      \"document_updated_at_primary\",",

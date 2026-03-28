@@ -14,9 +14,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/health"
-            },
+            "url": "{{base_url}}/health",
             "auth": {
               "type": "noauth"
             }
@@ -40,9 +38,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/system/readiness"
-            },
+            "url": "{{base_url}}/v1/system/readiness",
             "auth": {
               "type": "noauth"
             }
@@ -66,9 +62,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/openapi.json"
-            },
+            "url": "{{base_url}}/openapi.json",
             "auth": {
               "type": "noauth"
             }
@@ -92,9 +86,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/swagger"
-            },
+            "url": "{{base_url}}/swagger",
             "auth": {
               "type": "noauth"
             }
@@ -118,9 +110,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/scalar"
-            },
+            "url": "{{base_url}}/scalar",
             "auth": {
               "type": "noauth"
             }
@@ -144,9 +134,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/llms.txt"
-            },
+            "url": "{{base_url}}/llms.txt",
             "auth": {
               "type": "noauth"
             }
@@ -175,9 +163,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/me"
-            },
+            "url": "{{base_url}}/v1/me",
             "auth": {
               "type": "noauth"
             }
@@ -201,9 +187,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents"
-            },
+            "url": "{{base_url}}/v1/documents",
             "auth": {
               "type": "noauth"
             }
@@ -227,9 +211,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}",
             "auth": {
               "type": "noauth"
             }
@@ -259,9 +241,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/content"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/content",
             "auth": {
               "type": "noauth"
             },
@@ -295,9 +275,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/bootstrap"
-            },
+            "url": "{{base_url}}/v1/documents/bootstrap",
             "auth": {
               "type": "noauth"
             },
@@ -331,9 +309,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/generate"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/generate",
             "auth": {
               "type": "noauth"
             },
@@ -367,9 +343,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/apply"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/outline/apply",
             "auth": {
               "type": "noauth"
             },
@@ -403,9 +377,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/ai/proposals",
             "auth": {
               "type": "noauth"
             },
@@ -439,9 +411,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_apply}}/apply"
-            },
+            "url": "{{base_url}}/v1/ai/proposals/{{proposal_id_apply}}/apply",
             "auth": {
               "type": "noauth"
             },
@@ -475,9 +445,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/ai/proposals/{{proposal_id_dismiss}}/dismiss"
-            },
+            "url": "{{base_url}}/v1/ai/proposals/{{proposal_id_dismiss}}/dismiss",
             "auth": {
               "type": "noauth"
             },
@@ -511,9 +479,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx/preflight"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx/preflight",
             "auth": {
               "type": "noauth"
             },
@@ -547,9 +513,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/exports/docx",
             "auth": {
               "type": "noauth"
             },
@@ -577,9 +541,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports"
-            },
+            "url": "{{base_url}}/v1/exports",
             "auth": {
               "type": "noauth"
             }
@@ -603,9 +565,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}"
-            },
+            "url": "{{base_url}}/v1/exports/{{export_id}}",
             "auth": {
               "type": "noauth"
             }
@@ -635,9 +595,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}/retry"
-            },
+            "url": "{{base_url}}/v1/exports/{{export_id}}/retry",
             "auth": {
               "type": "noauth"
             },
@@ -665,9 +623,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/exports/{{export_id}}/download"
-            },
+            "url": "{{base_url}}/v1/exports/{{export_id}}/download",
             "auth": {
               "type": "noauth"
             }
@@ -697,9 +653,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/upload-url"
-            },
+            "url": "{{base_url}}/v1/sources/upload-url",
             "auth": {
               "type": "noauth"
             },
@@ -733,9 +687,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/register"
-            },
+            "url": "{{base_url}}/v1/sources/register",
             "auth": {
               "type": "noauth"
             },
@@ -763,9 +715,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/documents/{{document_id_primary}}/sources"
-            },
+            "url": "{{base_url}}/v1/documents/{{document_id_primary}}/sources",
             "auth": {
               "type": "noauth"
             }
@@ -789,9 +739,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}/status"
-            },
+            "url": "{{base_url}}/v1/sources/{{source_id}}/status",
             "auth": {
               "type": "noauth"
             }
@@ -821,9 +769,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}/retry"
-            },
+            "url": "{{base_url}}/v1/sources/{{source_id}}/retry",
             "auth": {
               "type": "noauth"
             },
@@ -851,9 +797,7 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/sources/{{source_id}}"
-            },
+            "url": "{{base_url}}/v1/sources/{{source_id}}",
             "auth": {
               "type": "noauth"
             }
@@ -888,9 +832,7 @@
                 "type": "text"
               }
             ],
-            "url": {
-              "raw": "{{base_url}}/webhooks/clerk"
-            },
+            "url": "{{base_url}}/webhooks/clerk",
             "auth": {
               "type": "noauth"
             },
