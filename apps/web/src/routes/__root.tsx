@@ -1,11 +1,15 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import * as React from "react"
+import { ClerkProvider } from "@clerk/tanstack-react-start"
+import type { QueryClient } from "@tanstack/react-query"
+import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
-import { ClerkProvider } from '@clerk/tanstack-react-start'
 
 import appCss from "../styles.css?url"
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{
+  queryClient: QueryClient
+}>()({
   head: () => ({
     meta: [
       {
@@ -36,9 +40,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="dark">
-        <ClerkProvider>
-          {children}
-        </ClerkProvider>
+        <ClerkProvider signUpFallbackRedirectUrl={"/onboarding"} signInFallbackRedirectUrl={"/app"}>{children}</ClerkProvider>
         <TanStackDevtools
           config={{
             position: "bottom-right",

@@ -1,13 +1,51 @@
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 import { UserButton, Show } from "@clerk/tanstack-react-start"
 
+import { ProvisioningPending } from "@/components/provisioning-pending"
+import { resolveOnboardingRedirect } from "@/lib/onboarding"
+import { appSessionQueryOptions, isApiRequestErrorStatus } from "@/lib/onboarding-queries"
+
 export const Route = createFileRoute("/app")({
+  loader: async ({ context, location }) => {
+    try {
+      const session = await context.queryClient.ensureQueryData(appSessionQueryOptions())
+
+      if (!session) {
+        return null
+      }
+
+      const nextLocation = resolveOnboardingRedirect(location.pathname, session)
+      if (nextLocation) {
+        throw redirect({ to: nextLocation })
+      }
+
+      return null
+    } catch (error) {
+      if (isApiRequestErrorStatus(error, 401)) {
+        throw redirect({ to: "/sign-in" })
+      }
+
+      throw error
+    }
+  },
   component: AppPage,
 })
 
 function AppPage() {
+  const { data: session } = useSuspenseQuery(appSessionQueryOptions())
   const [activeTab, setActiveTab] = React.useState<string | null>(null)
+
+  if (!session) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="w-full max-w-xl">
+          <ProvisioningPending />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="dark flex h-screen w-full bg-background text-foreground font-sans overflow-hidden selection:bg-primary/30">

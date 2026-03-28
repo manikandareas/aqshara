@@ -1,6 +1,6 @@
 import createFetchClient from "openapi-fetch";
 import createQueryClient from "openapi-react-query";
-import { getPublicApiBaseUrl } from "@aqshara/config";
+import { getPublicApiBaseUrl } from "@aqshara/config/client";
 import type { paths } from "./generated/types.js";
 
 export * from "./generated/types.js";

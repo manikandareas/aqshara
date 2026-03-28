@@ -83,7 +83,7 @@ export function registerSystemRoutes(app: OpenAPIHono<ApiEnv>): void {
         redisOk = true;
       } else {
         const { getRedisClient } = await import("@aqshara/config");
-        const redis = getRedisClient();
+        const redis = await getRedisClient();
         await redis.ping();
         redisOk = true;
       }

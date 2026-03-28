@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getRedisConnection } from "./index.ts";
+import { getRedisConnection } from "./index.js";
 
 test("getRedisConnection reads process env at call time", () => {
   const originalHost = process.env.REDIS_HOST;

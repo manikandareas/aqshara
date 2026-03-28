@@ -70,7 +70,7 @@ function getDefaultStore(): RateLimitStore {
 
   defaultStore = {
     async increment(key, windowMs) {
-      const redis = getRedisClient();
+      const redis = await getRedisClient();
       const result = (await redis.eval(
         REDIS_RATE_LIMIT_SCRIPT,
         1,

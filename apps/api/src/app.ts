@@ -3,6 +3,7 @@ import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
 import { swaggerUI } from "@hono/swagger-ui";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { cors } from "hono/cors";
 import { createFactory } from "hono/factory";
 import { apiInfo } from "@aqshara/api-spec";
 import { getApiBaseUrl } from "@aqshara/config";
@@ -24,8 +25,41 @@ import { registerSourceRoutes } from "./routes/sources.js";
 
 export const apiFactory = createFactory<ApiEnv>();
 
+function getAllowedWebOrigins() {
+  const allowedOrigins = new Set([
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+  ]);
+  const configuredOrigin = process.env.WEB_ORIGIN?.trim();
+
+  if (configuredOrigin) {
+    allowedOrigins.add(configuredOrigin);
+  }
+
+  return allowedOrigins;
+}
+
 export function createApp(context: AppContext) {
   const app = new OpenAPIHono<ApiEnv>();
+  const allowedOrigins = getAllowedWebOrigins();
+
+  app.use(
+    "/v1/*",
+    cors({
+      origin: (origin) => {
+        if (!origin) {
+          return "";
+        }
+
+        return allowedOrigins.has(origin) ? origin : "";
+      },
+      allowHeaders: ["Authorization", "Content-Type", "X-Test-User-Id"],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      maxAge: 86400,
+    }),
+  );
 
   app.use("*", async (c, next) => {
     c.set("ctx", context);

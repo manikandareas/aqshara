@@ -14,12 +14,12 @@
     "check": "pnpm generate && git diff --exit-code -- src/generated/types.ts"
   },
   "dependencies": {
+    "@aqshara/config": "workspace:*",
     "@tanstack/react-query": "^5.90.5",
     "openapi-fetch": "^0.15.0",
     "openapi-react-query": "^0.5.1"
   },
   "devDependencies": {
-    "@aqshara/config": "workspace:*",
     "@aqshara/eslint-config": "workspace:*",
     "@aqshara/typescript-config": "workspace:*",
     "@types/node": "^24.10.1",

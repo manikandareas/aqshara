@@ -125,6 +125,28 @@ function createClerkUserEvent(
 }
 
 describe("api contract", () => {
+  it("answers CORS preflight for authenticated v1 routes", async () => {
+    const app = createApp(createMemoryAppContext());
+    const response = await app.request("http://localhost/v1/me", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:3000",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "http://localhost:3000",
+    );
+    assert.match(
+      response.headers.get("access-control-allow-headers") ?? "",
+      /authorization/i,
+    );
+  });
+
   it("returns a healthy response from /health", async () => {
     const app = createApp(createMemoryAppContext());
     const response = await app.request("http://localhost/health");

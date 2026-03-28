@@ -1,5 +1,4 @@
 import { z } from "zod";
-import IORedis, { type Redis as RedisClient } from "ioredis";
 
 const envSchema = z.object({
   API_BASE_URL: z.url().default("http://localhost:9000"),
@@ -38,6 +37,8 @@ function readEnv() {
   });
 }
 
+type RedisClient = import("ioredis").Redis;
+
 let redisClient: RedisClient | undefined;
 
 export function getApiBaseUrl() {
@@ -65,9 +66,10 @@ export function getRedisConnection() {
   };
 }
 
-export function getRedisClient(): RedisClient {
+export async function getRedisClient(): Promise<RedisClient> {
   if (!redisClient) {
     const connection = getRedisConnection();
+    const { default: IORedis } = await import("ioredis");
     const RedisCtor = IORedis as unknown as {
       new (options: {
         host: string;
