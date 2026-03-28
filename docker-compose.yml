@@ -38,6 +38,65 @@ services:
       retries: 5
       start_period: 5s
 
+  bullmq-proxy:
+    platform: linux/amd64
+    image: ghcr.io/taskforcesh/bullmq-proxy:latest
+    container_name: aqshara-bullmq-proxy
+    restart: unless-stopped
+    profiles: ["workers"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      AUTH_TOKENS: ${WORKER_PROXY_TOKEN:-dev-token}
+      PORT: 8080
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "${WORKER_PROXY_PORT:-8080}:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: aqshara-worker
+    restart: unless-stopped
+    profiles: ["workers"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bullmq-proxy:
+        condition: service_started
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/aqshara}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AQSHARA_LOG_FORMAT: ${AQSHARA_LOG_FORMAT:-json}
+      AQSHARA_EXPORTS_DIR: /data/exports
+      AQSHARA_SOURCES_DIR: /data/sources
+      WORKER_PROXY_BASE_URL: http://bullmq-proxy:8080
+      WORKER_PUBLIC_BASE_URL: http://worker:8100
+      WORKER_PROXY_TOKEN: ${WORKER_PROXY_TOKEN:-dev-token}
+      WORKER_PROXY_SYNC_ENABLED: ${WORKER_PROXY_SYNC_ENABLED:-true}
+      WORKER_EXPORT_CONCURRENCY: ${WORKER_EXPORT_CONCURRENCY:-4}
+      WORKER_SOURCE_CONCURRENCY: ${WORKER_SOURCE_CONCURRENCY:-2}
+      WORKER_RECOVERY_STALE_MS: ${WORKER_RECOVERY_STALE_MS:-900000}
+      MISTRAL_OCR_TIMEOUT_MS: ${MISTRAL_OCR_TIMEOUT_MS:-45000}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_API_BASE_URL: ${MISTRAL_API_BASE_URL:-https://api.mistral.ai}
+    ports:
+      - "${WORKER_PORT:-8100}:8100"
+    volumes:
+      - worker_data:/data
+
 volumes:
   postgres_data:
   redis_data:
+  worker_data:
