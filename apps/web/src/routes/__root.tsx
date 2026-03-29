@@ -6,6 +6,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 
 import appCss from "../styles.css?url"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
@@ -40,7 +41,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="dark">
-        <ClerkProvider signUpFallbackRedirectUrl={"/onboarding"} signInFallbackRedirectUrl={"/app"}>{children}</ClerkProvider>
+        <TooltipProvider>
+          <ClerkProvider signUpFallbackRedirectUrl={"/onboarding"} signInFallbackRedirectUrl={"/app"}>{children}</ClerkProvider>
+        </TooltipProvider>
         <TanStackDevtools
           config={{
             position: "bottom-right",

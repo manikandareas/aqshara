@@ -1,8 +1,21 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { Show, UserButton } from "@clerk/tanstack-react-start"
 
-export function AppShell() {
-  const [activeTab, setActiveTab] = React.useState<string | null>(null)
+import { documentsListQueryOptions } from "@/features/documents/queries/documents-queries"
+import { useCreateDocument } from "@/features/documents/queries/use-document-mutations"
+
+export function AppShell({ children }: { children?: React.ReactNode }) {
+  const [activeTab, setActiveTab] = React.useState<string | null>("documents")
+  const { data: documentsData } = useQuery(documentsListQueryOptions()) as any
+  const createDocument = useCreateDocument()
+  
+  const handleCreateDocument = () => {
+    createDocument.mutate({ title: "Untitled", type: "general_paper" }, {
+      onSuccess: () => setActiveTab("documents")
+    })
+  }
 
   return (
     <div className="dark flex h-screen w-full bg-background text-foreground font-sans overflow-hidden selection:bg-primary/30">
@@ -91,7 +104,11 @@ export function AppShell() {
           <div className="flex items-center justify-between px-4 pt-5 pb-3">
             <span className="font-semibold text-[15px] tracking-tight">Documents</span>
             <div className="flex items-center gap-3 text-sidebar-foreground/60">
-              <button className="w-7 h-7 rounded-md bg-primary/80 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm">
+              <button 
+                onClick={handleCreateDocument}
+                disabled={createDocument.isPending}
+                className="w-7 h-7 rounded-md bg-primary/80 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm disabled:opacity-50"
+              >
                 <PlusIconSimple className="w-4 h-4" />
               </button>
               <button onClick={() => setActiveTab(null)} className="w-7 h-7 flex items-center justify-center hover:text-sidebar-foreground transition-colors group">
@@ -114,15 +131,27 @@ export function AppShell() {
 
           {/* Document List */}
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-1 pb-4">
-            <div className="w-full text-left px-3 py-2.5 rounded-lg bg-sidebar-accent/50 hover:bg-sidebar-accent transition-colors cursor-pointer group flex flex-col gap-1.5 border border-sidebar-border/50">
-              <span className="text-sm font-medium text-sidebar-foreground truncate w-full">Generative AI-Based Digital Course Applica...</span>
-              <span className="text-[11px] text-sidebar-foreground/50 font-medium">9 March &middot; Opened 1 seconds ago</span>
-            </div>
-
-            <div className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-sidebar-accent transition-colors cursor-pointer group flex flex-col gap-1.5 border border-transparent">
-              <span className="text-sm font-medium text-sidebar-foreground truncate w-full opacity-90">Untitled</span>
-              <span className="text-[11px] text-sidebar-foreground/50 font-medium">24 March &middot; Opened 6 seconds ago</span>
-            </div>
+            {documentsData?.documents?.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-sidebar-foreground/50 text-center">
+                No documents found.
+              </div>
+            ) : null}
+            {documentsData?.documents?.map((doc: any) => (
+              <Link
+                key={doc.id}
+                to="/app/$documentId"
+                params={{ documentId: doc.id }}
+                className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-sidebar-accent transition-colors cursor-pointer flex flex-col gap-1.5 border border-transparent block"
+                activeProps={{ className: "bg-sidebar-accent/50 border-sidebar-border/50" }}
+              >
+                <span className="text-sm font-medium text-sidebar-foreground truncate w-full opacity-90 block">
+                  {doc.title}
+                </span>
+                <span className="text-[11px] text-sidebar-foreground/50 font-medium block">
+                  {new Date(doc.updatedAt).toLocaleDateString()}
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
       </aside>
@@ -154,16 +183,8 @@ export function AppShell() {
         </header>
 
         {/* Editor Area */}
-        <div className="flex-1 overflow-auto pt-32 pb-40 px-10 md:px-20 lg:px-40 flex justify-center">
-          <div className="w-full max-w-3xl">
-            <div className="flex items-center">
-              <h1 className="text-[2.5rem] leading-tight font-semibold text-foreground/80 tracking-tight">
-                Untitled
-              </h1>
-              <div className="w-[1.5px] h-10 bg-primary ml-1 animate-[pulse_1s_infinite]" />
-            </div>
-            {/* Minimal content area body could go here */}
-          </div>
+        <div className="flex-1 relative">
+          {children}
         </div>
 
         {/* Bottom Status / Word count */}

@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute, redirect, Outlet } from "@tanstack/react-router"
 
 import { appSessionQueryOptions } from "@/features/app-session/queries/app-session-queries"
 import { ProvisioningPending } from "@/features/onboarding/components/provisioning-pending"
@@ -46,5 +46,9 @@ function AppPage() {
     )
   }
 
-  return <AppShell />
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
 }
